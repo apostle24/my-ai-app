@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Camera, X, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -10,40 +10,67 @@ interface CameraCaptureProps {
 export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [isStarting, setIsStarting] = useState(true);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
 
   const startCamera = useCallback(async () => {
     setIsStarting(true);
+    stopCamera();
+
     try {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Camera API not supported. Make sure you are using a secure connection (HTTPS).");
       }
+
       const newStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode },
+        video: { 
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false
       });
-      setStream(newStream);
+      
+      streamRef.current = newStream;
+      
       if (videoRef.current) {
         videoRef.current.srcObject = newStream;
+        videoRef.current.setAttribute('playsinline', 'true'); // Crucial for iOS Safari
+        await videoRef.current.play().catch(e => console.error("Video play error:", e));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error accessing camera:", err);
-      toast.error("Could not access camera. Please check permissions.");
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        toast.error("Camera access denied. Please allow camera permissions in your browser settings and refresh the page.");
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        toast.error("No camera found on this device.");
+      } else {
+        toast.error(err.message || "Could not access camera.");
+      }
     } finally {
       setIsStarting(false);
     }
-  }, [facingMode]);
+  }, [facingMode, stopCamera]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     startCamera();
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
+      stopCamera();
     };
-  }, [startCamera]);
+  }, [startCamera, stopCamera]);
 
   const capturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
@@ -53,6 +80,11 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        // Flip the image horizontally if using the front camera so it acts like a mirror
+        if (facingMode === 'user') {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const base64Image = canvas.toDataURL('image/jpeg', 0.8);
         onCapture(base64Image);
