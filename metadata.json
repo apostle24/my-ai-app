@@ -1,0 +1,5 @@
+{
+  "name": "Nexus AI Pro",
+  "description": "A comprehensive mobile app combining AI productivity tools, learning resources, and a digital marketplace.",
+  "requestFramePermissions": ["camera", "microphone"]
+}

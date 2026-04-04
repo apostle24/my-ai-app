@@ -1,0 +1,274 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the AI Nexus app.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "walletBalance": { "type": "number" },
+        "isCreator": { "type": "boolean" },
+        "bio": { "type": "string" },
+        "username": { "type": "string" },
+        "website": { "type": "string" },
+        "category": { "type": "string" },
+        "theme": { "type": "string" }
+      },
+      "required": ["uid", "email", "role", "createdAt", "walletBalance", "isCreator"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "A social post created by a user.",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "content": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "isPremium": { "type": "boolean" },
+        "price": { "type": "number" },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isDraft": { "type": "boolean" },
+        "category": { "type": "string" }
+      },
+      "required": ["authorId", "content", "likesCount", "commentsCount", "createdAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a post.",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "authorId", "content", "createdAt"]
+    },
+    "Like": {
+      "title": "Like",
+      "description": "A like on a post.",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "userId", "createdAt"]
+    },
+    "Follower": {
+      "title": "Follower",
+      "description": "A user following another user.",
+      "type": "object",
+      "properties": {
+        "followerId": { "type": "string" },
+        "followingId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["followerId", "followingId", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A notification for a user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["like", "comment", "follow", "payment", "subscription", "ai_ready", "system"] },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "link": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "title", "message", "isRead", "createdAt"]
+    },
+    "Status": {
+      "title": "Status",
+      "description": "A WhatsApp-like status update.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userDisplayName": { "type": "string" },
+        "userPhotoURL": { "type": "string" },
+        "content": { "type": "string" },
+        "bgColor": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "content", "bgColor", "createdAt", "expiresAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A financial transaction.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["purchase", "tip", "subscription", "withdrawal"] },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"] },
+        "itemId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "type", "status", "createdAt"]
+    },
+    "AIResult": {
+      "title": "AI Result",
+      "description": "An AI-generated output.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "tool": { "type": "string" },
+        "prompt": { "type": "string" },
+        "content": { "type": "string" },
+        "structuredData": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "tool", "prompt", "content", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "A digital product or template sold in the marketplace.",
+      "type": "object",
+      "properties": {
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "content": { "type": "string" },
+        "salesCount": { "type": "number" },
+        "rating": { "type": "number" },
+        "reviewsCount": { "type": "number" },
+        "features": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["creatorId", "title", "description", "price", "category", "createdAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A review for a product.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string" },
+        "rating": { "type": "number" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "rating", "text", "createdAt"]
+    },
+    "SearchIndex": {
+      "title": "Search Index",
+      "description": "Global search index for fast cross-platform searching",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["user", "post", "template", "product", "idea"] },
+        "title": { "type": "string" },
+        "keywords": { "type": "array", "items": { "type": "string" } },
+        "thumbnail": { "type": "string" },
+        "referenceId": { "type": "string" },
+        "popularityScore": { "type": "number" }
+      },
+      "required": ["type", "title", "referenceId", "popularityScore"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A direct messaging conversation between users.",
+      "type": "object",
+      "properties": {
+        "participantIds": { "type": "array", "items": { "type": "string" } },
+        "lastMessage": { "type": "string" },
+        "lastMessageTime": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participantIds", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message within a chat.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["chatId", "senderId", "text", "createdAt", "read"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles."
+    },
+    "/posts/{postId}": {
+      "schema": { "$ref": "#/entities/Post" },
+      "description": "Social posts."
+    },
+    "/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/Comment" },
+      "description": "Comments on posts."
+    },
+    "/likes/{likeId}": {
+      "schema": { "$ref": "#/entities/Like" },
+      "description": "Likes on posts."
+    },
+    "/followers/{followerId}": {
+      "schema": { "$ref": "#/entities/Follower" },
+      "description": "Follow relationships."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications."
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Financial transactions."
+    },
+    "/ai_results/{resultId}": {
+      "schema": { "$ref": "#/entities/AIResult" },
+      "description": "AI-generated outputs."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Marketplace products."
+    },
+    "/products/{productId}/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Reviews for a product."
+    },
+    "/search_index/{indexId}": {
+      "schema": { "$ref": "#/entities/SearchIndex" },
+      "description": "Global search index."
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/Chat" },
+      "description": "Direct messaging conversations."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Messages within a conversation."
+    },
+    "/statuses/{statusId}": {
+      "schema": { "$ref": "#/entities/Status" },
+      "description": "Ephemeral status updates."
+    }
+  }
+}
