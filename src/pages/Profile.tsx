@@ -1,0 +1,904 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { doc, updateDoc, collection, query, where, getDocs, orderBy, addDoc, getDoc, onSnapshot, serverTimestamp, limit } from 'firebase/firestore';
+import { db } from '../firebase';
+import { Settings, Edit3, Camera, MapPin, Link as LinkIcon, Calendar, Wallet, TrendingUp, Users, Image as ImageIcon, Video, FileText, Heart, MessageCircle, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { format } from 'date-fns';
+import { Link, useParams, useNavigate } from 'react-router-dom';
+import { useAppStore } from '../store';
+
+const compressImage = (base64Str: string, maxWidth = 800, quality = 0.7): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } else {
+        resolve(base64Str);
+      }
+    };
+    img.onerror = () => resolve(base64Str);
+  });
+};
+
+export default function Profile() {
+  const { userId } = useParams();
+  const { user, userProfile: currentUserProfile } = useAuth();
+  const navigate = useNavigate();
+  const { setAuthModalOpen } = useAppStore();
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const isOwnProfile = !userId || (user && userId === user.uid);
+  
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    displayName: '',
+    username: '',
+    bio: '',
+    website: '',
+    location: ''
+  });
+  const [activeTab, setActiveTab] = useState('posts');
+  const [userPosts, setUserPosts] = useState<any[]>([]);
+  const [userProducts, setUserProducts] = useState<any[]>([]);
+  const [userPurchases, setUserPurchases] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Product creation state
+  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
+  const [productForm, setProductForm] = useState({
+    title: '',
+    description: '',
+    features: '',
+    price: '',
+    category: 'Digital',
+  });
+  const [imageBase64, setImageBase64] = useState<string>('');
+  const [pdfBase64, setPdfBase64] = useState<string>('');
+
+  // Settings state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (isOwnProfile) {
+        setUserProfile(currentUserProfile);
+      } else if (userId) {
+        try {
+          const docRef = doc(db, 'users', userId);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            setUserProfile({ id: docSnap.id, ...docSnap.data() });
+          } else {
+            toast.error('User not found');
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+        }
+      }
+    };
+    fetchProfile();
+  }, [userId, isOwnProfile, currentUserProfile]);
+
+  useEffect(() => {
+    if (userProfile && isOwnProfile) {
+      setEditForm({
+        displayName: userProfile.displayName || '',
+        username: userProfile.username || '',
+        bio: userProfile.bio || '',
+        website: userProfile.website || '',
+        location: userProfile.location || ''
+      });
+    }
+  }, [userProfile, isOwnProfile]);
+
+  useEffect(() => {
+    const targetUserId = isOwnProfile ? user?.uid : userId;
+    if (!targetUserId) return;
+
+    const postsQ = query(collection(db, 'posts'), where('authorId', '==', targetUserId), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribePosts = onSnapshot(postsQ, (snapshot) => {
+      setUserPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching user posts:", error);
+      setLoading(false);
+    });
+
+    const productsQ = query(collection(db, 'products'), where('creatorId', '==', targetUserId), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribeProducts = onSnapshot(productsQ, (snapshot) => {
+      setUserProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error fetching user products:", error);
+    });
+
+    let unsubscribePurchases = () => {};
+    if (isOwnProfile) {
+      const purchasesQ = query(collection(db, 'transactions'), where('userId', '==', targetUserId), where('type', '==', 'purchase'), orderBy('createdAt', 'desc'), limit(50));
+      unsubscribePurchases = onSnapshot(purchasesQ, async (snapshot) => {
+        const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const completedTxs = txs.filter((tx: any) => tx.status === 'completed');
+        
+        const purchasesWithProducts = await Promise.all(completedTxs.map(async (tx: any) => {
+          if (tx.itemId) {
+            try {
+              const productDoc = await getDoc(doc(db, 'products', tx.itemId));
+              if (productDoc.exists()) {
+                return { ...tx, product: { id: productDoc.id, ...productDoc.data() } };
+              }
+            } catch (e) {
+              console.error("Error fetching product for purchase:", e);
+            }
+          }
+          return tx;
+        }));
+        setUserPurchases(purchasesWithProducts.filter(p => p.product));
+      }, (error) => {
+        console.error("Error fetching user purchases:", error);
+      });
+    }
+
+    return () => {
+      unsubscribePosts();
+      unsubscribeProducts();
+      unsubscribePurchases();
+    };
+  }, [user, userId, isOwnProfile]);
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        ...editForm,
+        updatedAt: new Date().toISOString()
+      });
+      setIsEditing(false);
+      toast.success('Profile updated successfully!');
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      toast.error('Failed to update profile');
+    }
+  };
+
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !userProfile) return;
+    
+    if (!productForm.title || !productForm.price) {
+      toast.error('Please fill in required fields');
+      return;
+    }
+
+    try {
+      const docRef = await addDoc(collection(db, 'products'), {
+        creatorId: user.uid,
+        creatorName: userProfile.displayName || 'Creator',
+        creatorPhoto: userProfile.photoURL || '',
+        title: productForm.title,
+        description: productForm.description,
+        features: productForm.features.split('\n').filter(f => f.trim() !== ''),
+        price: Number(productForm.price),
+        category: productForm.category,
+        imageUrl: imageBase64 || `https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80`,
+        content: pdfBase64 || '',
+        createdAt: new Date().toISOString()
+      });
+      
+      toast.success('Product created successfully!');
+      setIsCreatingProduct(false);
+      setProductForm({ title: '', description: '', features: '', price: '', category: 'Digital' });
+      setImageBase64('');
+      setPdfBase64('');
+    } catch (error) {
+      console.error("Error creating product:", error);
+      toast.error('Failed to create product');
+    }
+  };
+
+  const handleMessage = async () => {
+    if (!user || !userProfile) return;
+
+    try {
+      // Check if chat already exists
+      const q = query(
+        collection(db, 'chats'),
+        where('participantIds', 'array-contains', user.uid),
+        limit(50)
+      );
+      const snapshot = await getDocs(q);
+      
+      let existingChatId = null;
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.participantIds.includes(userProfile.uid)) {
+          existingChatId = doc.id;
+        }
+      });
+
+      if (existingChatId) {
+        navigate(`/messages?chatId=${existingChatId}`);
+      } else {
+        // Create new chat
+        const now = new Date().toISOString();
+        const chatRef = await addDoc(collection(db, 'chats'), {
+          participantIds: [user.uid, userProfile.uid],
+          updatedAt: now
+        });
+        navigate(`/messages?chatId=${chatRef.id}`);
+      }
+    } catch (error) {
+      console.error("Error starting chat:", error);
+      toast.error('Failed to start conversation');
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    if (file.size > 1048576) { // 1MB limit
+      toast.error('Image must be less than 1MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64Image = reader.result as string;
+        await updateDoc(doc(db, 'users', user.uid), {
+          photoURL: base64Image,
+          updatedAt: new Date().toISOString()
+        });
+        toast.success('Profile photo updated!');
+      } catch (error) {
+        console.error("Error updating photo:", error);
+        toast.error('Failed to update photo');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  if (!userProfile) {
+    if (!user && isOwnProfile) {
+      return (
+        <div className="flex flex-col items-center justify-center h-[80vh] px-4 text-center">
+          <div className="bg-zinc-900/50 p-6 rounded-3xl border border-zinc-800 max-w-md w-full">
+            <h2 className="text-2xl font-bold text-white mb-2">Sign in to view profile</h2>
+            <p className="text-zinc-400 mb-6">You need to be signed in to view your profile and manage your account.</p>
+            <button 
+              onClick={() => setAuthModalOpen(true)}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-colors"
+            >
+              Sign In
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-24 max-w-4xl mx-auto">
+      {/* Header / Cover Photo */}
+      <div className="h-48 md:h-64 bg-zinc-900 relative">
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+        {isEditing && (
+          <button className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-sm transition-colors">
+            <Camera className="w-5 h-5" />
+          </button>
+        )}
+      </div>
+
+      {/* Profile Info */}
+      <div className="px-4 md:px-8 relative -mt-20">
+        <div className="flex justify-between items-end mb-4">
+          <div className="relative group">
+            <img referrerPolicy="no-referrer" 
+              src={userProfile.photoURL || `https://ui-avatars.com/api/?name=${userProfile.displayName || 'User'}&size=128`} 
+              alt={userProfile.displayName} 
+              className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-black object-cover bg-zinc-900"
+            />
+            {isEditing && (
+              <>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  ref={fileInputRef}
+                  onChange={handleAvatarUpload}
+                />
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Camera className="w-8 h-8 text-white" />
+                </button>
+              </>
+            )}
+          </div>
+          
+          <div className="flex gap-3 pb-4">
+            {isOwnProfile ? (
+              isEditing ? (
+                <>
+                  <button 
+                    onClick={() => setIsEditing(false)}
+                    className="px-4 py-2 rounded-full font-medium text-zinc-300 hover:bg-zinc-900 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleSaveProfile}
+                    className="px-6 py-2 bg-white text-black rounded-full font-bold hover:bg-zinc-200 transition-colors"
+                  >
+                    Save
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => setIsEditing(true)}
+                    className="px-6 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-full font-medium border border-zinc-800 transition-colors flex items-center gap-2"
+                  >
+                    <Edit3 className="w-4 h-4" /> Edit Profile
+                  </button>
+                  <button 
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="p-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-full border border-zinc-800 transition-colors"
+                  >
+                    <Settings className="w-5 h-5" />
+                  </button>
+                </>
+              )
+            ) : (
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => toast.success(`You are now following ${userProfile.displayName}`)}
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold transition-colors"
+                >
+                  Follow
+                </button>
+                <button 
+                  onClick={handleMessage}
+                  className="p-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-full border border-zinc-800 transition-colors"
+                  title="Message"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {isOwnProfile && isEditing ? (
+          <div className="space-y-4 max-w-xl animate-in fade-in duration-300">
+            <div>
+              <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">Display Name</label>
+              <input 
+                type="text" 
+                value={editForm.displayName}
+                onChange={e => setEditForm({...editForm, displayName: e.target.value})}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">Username</label>
+              <div className="relative">
+                <span className="absolute left-4 top-2.5 text-zinc-500">@</span>
+                <input 
+                  type="text" 
+                  value={editForm.username}
+                  onChange={e => setEditForm({...editForm, username: e.target.value})}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-8 pr-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">Bio</label>
+              <textarea 
+                value={editForm.bio}
+                onChange={e => setEditForm({...editForm, bio: e.target.value})}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none h-24"
+                placeholder="Tell the world about yourself..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">Location</label>
+                <input 
+                  type="text" 
+                  value={editForm.location}
+                  onChange={e => setEditForm({...editForm, location: e.target.value})}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  placeholder="City, Country"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">Website</label>
+                <input 
+                  type="url" 
+                  value={editForm.website}
+                  onChange={e => setEditForm({...editForm, website: e.target.value})}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  placeholder="https://..."
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="animate-in fade-in duration-300">
+            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+              {userProfile.displayName}
+              {userProfile.isCreator && (
+                <span className="bg-indigo-500/20 text-indigo-400 text-xs px-2 py-0.5 rounded-full border border-indigo-500/30 uppercase tracking-wider font-semibold">
+                  Creator
+                </span>
+              )}
+            </h1>
+            <p className="text-zinc-400 mb-4">@{userProfile.username || user.uid.slice(0, 8)}</p>
+            
+            <p className="text-zinc-200 whitespace-pre-wrap max-w-2xl mb-4">
+              {userProfile.bio || 'No bio yet. Click Edit Profile to add one.'}
+            </p>
+
+            <div className="flex flex-wrap gap-4 text-sm text-zinc-400 mb-6">
+              {userProfile.location && (
+                <div className="flex items-center gap-1">
+                  <MapPin className="w-4 h-4" /> {userProfile.location}
+                </div>
+              )}
+              {userProfile.website && (
+                <div className="flex items-center gap-1">
+                  <LinkIcon className="w-4 h-4" /> 
+                  <a href={userProfile.website} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">
+                    {userProfile.website.replace(/^https?:\/\//, '')}
+                  </a>
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <Calendar className="w-4 h-4" /> Joined {userProfile.createdAt ? format(new Date(userProfile.createdAt), 'MMMM yyyy') : 'Recently'}
+              </div>
+            </div>
+
+            <div className="flex gap-6 mb-8">
+              <div className="flex flex-col">
+                <span className="text-xl font-bold text-white">{userProfile.followersCount || 0}</span>
+                <span className="text-sm text-zinc-500">Followers</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xl font-bold text-white">{userProfile.followingCount || 0}</span>
+                <span className="text-sm text-zinc-500">Following</span>
+              </div>
+              {userProfile.isCreator && (
+                <div className="flex flex-col">
+                  <span className="text-xl font-bold text-emerald-400">${userProfile.walletBalance?.toFixed(2) || '0.00'}</span>
+                  <span className="text-sm text-zinc-500">Earnings</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Creator Dashboard Preview (if creator) */}
+        {userProfile.isCreator && !isEditing && (
+          <div className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 rounded-2xl p-4 mb-8 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-indigo-500/20 rounded-xl flex items-center justify-center">
+                <TrendingUp className="w-6 h-6 text-indigo-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-white">Creator Dashboard</h3>
+                <p className="text-sm text-indigo-300">Manage earnings & analytics</p>
+              </div>
+            </div>
+            <Link to="/creator-dashboard" className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-sm font-medium transition-colors">
+              View Dashboard
+            </Link>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="flex gap-6 border-b border-zinc-900 mb-6">
+          <button 
+            onClick={() => setActiveTab('posts')}
+            className={`pb-4 text-sm font-medium transition-colors relative ${activeTab === 'posts' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            Posts
+            {activeTab === 'posts' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white rounded-t-full"></div>}
+          </button>
+          <button 
+            onClick={() => setActiveTab('media')}
+            className={`pb-4 text-sm font-medium transition-colors relative ${activeTab === 'media' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            Media
+            {activeTab === 'media' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white rounded-t-full"></div>}
+          </button>
+          {userProfile.isCreator && (
+            <button 
+              onClick={() => setActiveTab('store')}
+              className={`pb-4 text-sm font-medium transition-colors relative ${activeTab === 'store' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              Store
+              {activeTab === 'store' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white rounded-t-full"></div>}
+            </button>
+          )}
+          {isOwnProfile && (
+            <button 
+              onClick={() => setActiveTab('purchases')}
+              className={`pb-4 text-sm font-medium transition-colors relative ${activeTab === 'purchases' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              Purchases
+              {activeTab === 'purchases' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white rounded-t-full"></div>}
+            </button>
+          )}
+        </div>
+
+        {/* Tab Content */}
+        <div className="min-h-[300px]">
+          {loading ? (
+            <div className="grid grid-cols-3 gap-1">
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <div key={i} className="aspect-square bg-zinc-900 animate-pulse"></div>
+              ))}
+            </div>
+          ) : activeTab === 'posts' ? (
+            userPosts.length > 0 ? (
+              <div className="space-y-4">
+                {userPosts.map(post => (
+                  <div 
+                    key={post.id} 
+                    onClick={() => navigate(`/post/${post.id}`)}
+                    className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-4 cursor-pointer hover:bg-zinc-900 transition-colors"
+                  >
+                    <p className="text-zinc-200 mb-3">{post.content}</p>
+                    {post.imageUrl && (
+                      <div className="rounded-xl overflow-hidden">
+                        <img referrerPolicy="no-referrer" src={post.imageUrl} alt="Post" className="w-full h-auto object-cover" />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-4 mt-3 text-sm text-zinc-500">
+                      <span className="flex items-center gap-1"><Heart className="w-4 h-4" /> {post.likesCount || 0}</span>
+                      <span className="flex items-center gap-1"><MessageCircle className="w-4 h-4" /> {post.commentsCount || 0}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-20">
+                <FileText className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-white mb-2">No posts yet</h3>
+                <p className="text-zinc-500">When you create posts, they'll show up here.</p>
+              </div>
+            )
+          ) : activeTab === 'media' ? (
+            <div className="grid grid-cols-3 gap-1">
+              {userPosts.filter(p => p.imageUrl).length > 0 ? (
+                userPosts.filter(p => p.imageUrl).map(post => (
+                  <div 
+                    key={post.id} 
+                    onClick={() => navigate(`/post/${post.id}`)}
+                    className="aspect-square bg-zinc-900 relative group cursor-pointer"
+                  >
+                    <img referrerPolicy="no-referrer" src={post.imageUrl} alt="Media" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                      <span className="text-white flex items-center gap-1 font-medium"><Heart className="w-5 h-5 fill-current" /> {post.likesCount || 0}</span>
+                      <span className="text-white flex items-center gap-1 font-medium"><MessageCircle className="w-5 h-5 fill-current" /> {post.commentsCount || 0}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-3 text-center py-20">
+                  <ImageIcon className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-white mb-2">No media yet</h3>
+                  <p className="text-zinc-500">Photos and videos you share will appear here.</p>
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'store' ? (
+            userProducts.length > 0 ? (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-bold text-white">Products</h3>
+                  {isOwnProfile && (
+                    <button 
+                      onClick={() => setIsCreatingProduct(true)}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-sm font-medium transition-colors active:scale-95"
+                    >
+                      Add New
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {userProducts.map(product => (
+                    <div key={product.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="font-bold text-white line-clamp-1">{product.title}</h4>
+                          <span className="text-indigo-400 font-bold">${product.price}</span>
+                        </div>
+                        <p className="text-sm text-zinc-400 line-clamp-2 mb-3">{product.description}</p>
+                      </div>
+                      <div className="flex items-center justify-between mt-auto pt-3 border-t border-zinc-800">
+                        <span className="text-xs font-medium px-2 py-1 bg-indigo-500/10 text-indigo-400 rounded-md uppercase tracking-wider">
+                          {product.category}
+                        </span>
+                        {isOwnProfile && (
+                          <button className="text-zinc-400 hover:text-white transition-colors">
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-20">
+                <Wallet className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-white mb-2">Store Empty</h3>
+                <p className="text-zinc-500">No digital products or templates yet.</p>
+                {isOwnProfile && (
+                  <button 
+                    onClick={() => setIsCreatingProduct(true)}
+                    className="mt-4 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-medium transition-colors active:scale-95"
+                  >
+                    Create Product
+                  </button>
+                )}
+              </div>
+            )
+          ) : activeTab === 'purchases' ? (
+            userPurchases.length > 0 ? (
+              <div className="space-y-4">
+                {userPurchases.map(purchase => (
+                  <div key={purchase.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                      <h4 className="font-bold text-white">{purchase.product?.title || 'Unknown Product'}</h4>
+                      <p className="text-sm text-zinc-400">Purchased on {purchase.createdAt ? format(new Date(purchase.createdAt), 'MMM d, yyyy') : 'Unknown date'}</p>
+                    </div>
+                    <div className="flex items-center gap-4 w-full sm:w-auto">
+                      <span className="text-emerald-400 font-bold">${purchase.amount?.toFixed(2)}</span>
+                      {purchase.product?.content && (
+                        <a 
+                          href={purchase.product.content}
+                          download={`${purchase.product.title || 'product'}.pdf`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors flex-1 sm:flex-none text-center"
+                        >
+                          Download
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-20">
+                <Wallet className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-white mb-2">No purchases yet</h3>
+                <p className="text-zinc-500">Products you buy from creators will appear here.</p>
+              </div>
+            )
+          ) : null}
+        </div>
+      </div>
+
+      {/* Create Product Modal */}
+      {isCreatingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-6 border-b border-zinc-800">
+              <h2 className="text-xl font-bold text-white">Create Product</h2>
+              <button 
+                onClick={() => setIsCreatingProduct(false)}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateProduct} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-400 mb-1">Product Title *</label>
+                <input 
+                  type="text" 
+                  required
+                  value={productForm.title}
+                  onChange={e => setProductForm({...productForm, title: e.target.value})}
+                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  placeholder="e.g., Ultimate Notion Template"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-zinc-400 mb-1">Description</label>
+                <textarea 
+                  value={productForm.description}
+                  onChange={e => setProductForm({...productForm, description: e.target.value})}
+                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none h-24"
+                  placeholder="Describe your product..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-400 mb-1">Features (One per line)</label>
+                <textarea 
+                  value={productForm.features}
+                  onChange={e => setProductForm({...productForm, features: e.target.value})}
+                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none h-24"
+                  placeholder="E.g. Fully customizable&#10;Lifetime updates&#10;High resolution"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Price ($) *</label>
+                  <input 
+                    type="number" 
+                    required
+                    min="0"
+                    step="0.01"
+                    value={productForm.price}
+                    onChange={e => setProductForm({...productForm, price: e.target.value})}
+                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Category</label>
+                  <select 
+                    value={productForm.category}
+                    onChange={e => setProductForm({...productForm, category: e.target.value})}
+                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none appearance-none"
+                  >
+                    <option value="Digital">Digital</option>
+                    <option value="Template">Template</option>
+                    <option value="Course">Course</option>
+                    <option value="Service">Service</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Product Image</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        if (file.size > 2 * 1024 * 1024) {
+                          toast.error('Image must be less than 2MB');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = async () => {
+                          const compressed = await compressImage(reader.result as string);
+                          setImageBase64(compressed);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {imageBase64 && <img referrerPolicy="no-referrer" src={imageBase64} alt="Preview" className="mt-2 h-20 rounded object-cover" />}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Product File (PDF)</label>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        if (file.size > 700 * 1024) {
+                          toast.error('PDF must be less than 700KB due to database limits');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setPdfBase64(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {pdfBase64 && <p className="text-xs text-emerald-400 mt-1">PDF attached successfully</p>}
+                </div>
+              </div>
+
+              <div className="pt-4">
+                <button 
+                  type="submit"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl transition-colors active:scale-95"
+                >
+                  Publish Product
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-6 border-b border-zinc-800">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Settings className="w-5 h-5" /> Settings
+              </h2>
+              <button 
+                onClick={() => setIsSettingsOpen(false)}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-2">
+              <button className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
+                <div>
+                  <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Account Settings</h3>
+                  <p className="text-sm text-zinc-500">Manage your email, password, and security</p>
+                </div>
+                <Settings className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+              </button>
+              
+              <button className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
+                <div>
+                  <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Privacy Policy</h3>
+                  <p className="text-sm text-zinc-500">Read our data collection and usage policy</p>
+                </div>
+                <FileText className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+              </button>
+
+              <button className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
+                <div>
+                  <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Terms of Service</h3>
+                  <p className="text-sm text-zinc-500">Rules and guidelines for using NEXUS</p>
+                </div>
+                <FileText className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+              </button>
+
+              <button className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
+                <div>
+                  <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Help & Support</h3>
+                  <p className="text-sm text-zinc-500">Get assistance with your account</p>
+                </div>
+                <MessageCircle className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+              </button>
+            </div>
+            <div className="p-4 border-t border-zinc-800 text-center">
+              <p className="text-xs text-zinc-600">NEXUS AI PRO v1.0.0</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
