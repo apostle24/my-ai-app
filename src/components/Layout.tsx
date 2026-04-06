@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Home, Search, Sparkles, Bell, User, PlusCircle, ShoppingBag, MessageCircle, HelpCircle } from "lucide-react";
+import { Home, Search, Sparkles, Bell, User, PlusCircle, ShoppingBag, MessageCircle, HelpCircle, Bot } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAuth } from "../contexts/AuthContext";
 import { useState, useEffect } from "react";
@@ -7,6 +7,7 @@ import { collection, query, where, onSnapshot, limit } from "firebase/firestore"
 import { db } from "../firebase";
 import AuthModal from "./AuthModal";
 import OnboardingModal from "./OnboardingModal";
+import PremiumModal from "./PremiumModal";
 import { useAppStore } from "../store";
 import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride';
 
@@ -14,6 +15,7 @@ const navItems = [
   { icon: Home, label: "Home", path: "/" },
   { icon: Search, label: "Discover", path: "/discover" },
   { icon: Sparkles, label: "AI Studio", path: "/ai-studio" },
+  { icon: Bot, label: "Assistant", path: "/chat" },
   { icon: ShoppingBag, label: "Market", path: "/marketplace" },
   { icon: MessageCircle, label: "Messages", path: "/messages" },
   { icon: Bell, label: "Alerts", path: "/notifications", badge: true },
@@ -25,7 +27,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const { user, userProfile, signInWithGoogle } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
-  const { isAuthModalOpen, setAuthModalOpen } = useAppStore();
+  const { isAuthModalOpen, setAuthModalOpen, isPremiumModalOpen, setPremiumModalOpen } = useAppStore();
   const [runGlobalTour, setRunGlobalTour] = useState(false);
 
   const globalTourSteps: Step[] = [
@@ -130,6 +132,7 @@ export default function Layout() {
         }}
       />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setAuthModalOpen(false)} />
+      <PremiumModal isOpen={isPremiumModalOpen} onClose={() => setPremiumModalOpen(false)} />
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-72 bg-zinc-950 border-r border-zinc-900 z-20 shrink-0">
         <div className="p-6 flex items-center gap-3">
@@ -248,8 +251,8 @@ export default function Layout() {
         </header>
 
         {/* Main Scrollable Area */}
-        <main className="flex-1 overflow-y-auto scroll-smooth relative w-full">
-          <div className="max-w-3xl mx-auto w-full h-full">
+        <main className="flex-1 overflow-y-auto scroll-smooth relative w-full min-h-0">
+          <div className="max-w-3xl mx-auto w-full min-h-full flex flex-col">
             <Outlet />
           </div>
         </main>

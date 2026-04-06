@@ -76,6 +76,12 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
+      
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        toast.error("Camera is still initializing, please wait a moment.");
+        return;
+      }
+      
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
@@ -124,6 +130,11 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
               autoPlay 
               playsInline 
               muted 
+              onLoadedMetadata={() => {
+                if (videoRef.current) {
+                  videoRef.current.play().catch(e => console.error("Play error:", e));
+                }
+              }}
               className="w-full h-full object-cover"
             />
           )}

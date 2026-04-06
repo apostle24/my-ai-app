@@ -194,9 +194,9 @@ export default function Messages() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-64px)] md:h-screen bg-black">
+    <div className="flex flex-1 w-full bg-black min-h-0">
       {/* Chats List Sidebar */}
-      <div className={`w-full md:w-80 lg:w-96 border-r border-zinc-900 flex flex-col ${activeChatId ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`w-full md:w-80 lg:w-96 border-r border-zinc-900 flex flex-col min-h-0 ${activeChatId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 border-b border-zinc-900">
           <h1 className="text-xl font-bold text-white mb-4">Messages</h1>
           <div className="relative">
@@ -253,7 +253,7 @@ export default function Messages() {
       </div>
 
       {/* Active Chat Area */}
-      <div className={`flex-1 flex flex-col ${!activeChatId ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`flex-1 flex flex-col min-h-0 ${!activeChatId ? 'hidden md:flex' : 'flex'}`}>
         {activeChatId && activeChat ? (
           <>
             {/* Chat Header */}
@@ -316,7 +316,7 @@ export default function Messages() {
             </div>
 
             {/* Message Input */}
-            <div className="p-4 border-t border-zinc-900 bg-black">
+            <div className="p-4 border-t border-zinc-900 bg-black shrink-0">
               <form onSubmit={handleSendMessage} className="flex gap-2">
                 <input
                   type="text"

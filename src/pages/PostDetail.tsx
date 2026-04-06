@@ -12,7 +12,7 @@ export default function PostDetail() {
   const { postId } = useParams();
   const navigate = useNavigate();
   const { user, userProfile } = useAuth();
-  const { setAuthModalOpen } = useAppStore();
+  const { setAuthModalOpen, setPremiumModalOpen } = useAppStore();
   const [post, setPost] = useState<any>(null);
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -87,9 +87,14 @@ export default function PostDetail() {
   };
 
   const handleGenerateAIComment = async () => {
-    if (!user) {
+    if (!user || !userProfile) {
       toast.error('Please sign in to use AI features');
       setAuthModalOpen(true);
+      return;
+    }
+
+    if (!userProfile.isPro) {
+      setPremiumModalOpen(true);
       return;
     }
 

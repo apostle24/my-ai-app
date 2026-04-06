@@ -5,7 +5,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { ShoppingBag, Search, Filter, Star, Download, TrendingUp, Package, X, Check, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { usePaystackPayment } from 'react-paystack';
 import { useAppStore } from '../store';
 
 const compressImage = (base64Str: string, maxWidth = 800, quality = 0.7): Promise<string> => {
@@ -38,16 +37,7 @@ const compressImage = (base64Str: string, maxWidth = 800, quality = 0.7): Promis
 
 const BuyButton = ({ product, user, className, children, onClick }: { product: any, user: any, className?: string, children?: React.ReactNode, onClick?: () => void }) => {
   const { setAuthModalOpen } = useAppStore();
-  
-  const config = {
-    reference: (new Date()).getTime().toString() + '-' + product.id,
-    email: user?.email || 'customer@example.com',
-    amount: Math.round(product.price * 100 * 1.08), // Paystack uses lowest denomination. Included 8% tax.
-    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_your_paystack_public_key_here', // Using test public key as requested
-    currency: 'GHS',
-  };
-
-  const initializePayment = usePaystackPayment(config);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handlePurchase = async () => {
     if (!user) {
@@ -56,6 +46,7 @@ const BuyButton = ({ product, user, className, children, onClick }: { product: a
       return;
     }
 
+    setIsProcessing(true);
     try {
       // Record pending transaction
       const docRef = await addDoc(collection(db, 'transactions'), {
@@ -68,54 +59,33 @@ const BuyButton = ({ product, user, className, children, onClick }: { product: a
         createdAt: new Date().toISOString()
       });
 
-      const onSuccess = async (reference: any) => {
-        toast.success('Payment successful! Your purchase is complete.');
-        // Update transaction status to completed
-        try {
-          await updateDoc(doc(db, 'transactions', docRef.id), {
-            status: 'completed',
-            paymentReference: reference.reference
-          });
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product: product,
+          email: user.email,
+          origin: window.location.origin
+        })
+      });
 
-          // Notify creator
-          if (product.creatorId && product.creatorId !== user.uid) {
-            await addDoc(collection(db, 'notifications'), {
-              userId: product.creatorId,
-              type: 'payment',
-              title: 'New Sale!',
-              message: `${user.displayName || 'Someone'} purchased ${product.title} for $${product.price}`,
-              link: '/creator-dashboard',
-              isRead: false,
-              createdAt: new Date().toISOString()
-            });
-            
-            // Update creator's wallet balance and product sales count
-            import('firebase/firestore').then(async ({ getDoc, increment }) => {
-              const creatorRef = doc(db, 'users', product.creatorId);
-              await updateDoc(creatorRef, {
-                walletBalance: increment(Number(product.price))
-              });
-              
-              const productRef = doc(db, 'products', product.id);
-              await updateDoc(productRef, {
-                salesCount: increment(1)
-              });
-            });
-          }
-        } catch (e) {
-          console.error("Error updating transaction:", e);
+      const data = await response.json();
+      if (data.url) {
+        if (data.url.includes(window.location.origin)) {
+          window.location.href = data.url;
+        } else {
+          window.open(data.url, '_blank');
         }
-      };
-
-      const onClose = () => {
-        toast.error('Payment canceled.');
-      };
-
-      initializePayment({ onSuccess, onClose });
+      } else {
+        throw new Error(data.error || 'Failed to initialize checkout');
+      }
+      
       if (onClick) onClick();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error initiating purchase:", error);
-      toast.error("Failed to initiate purchase");
+      toast.error(error.message || "Failed to initiate purchase");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -125,9 +95,10 @@ const BuyButton = ({ product, user, className, children, onClick }: { product: a
         e.stopPropagation();
         handlePurchase();
       }}
-      className={className || "flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"}
+      disabled={isProcessing}
+      className={className || "flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"}
     >
-      {children || (
+      {isProcessing ? 'Processing...' : children || (
         <>
           <Download className="w-4 h-4" />
           Buy

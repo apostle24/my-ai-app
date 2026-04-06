@@ -9,12 +9,13 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import Statuses from '../components/Statuses';
 import CameraCapture from '../components/CameraCapture';
+import { GoogleGenAI } from "@google/genai";
 
 const CATEGORIES = ['General', 'Technology', 'Design', 'Business', 'Life', 'Art', 'Gaming'];
 
 export default function Home() {
   const { user, userProfile } = useAuth();
-  const { setAuthModalOpen } = useAppStore();
+  const { setAuthModalOpen, setPremiumModalOpen } = useAppStore();
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [newPostContent, setNewPostContent] = useState('');
@@ -23,6 +24,7 @@ export default function Home() {
   const [postLimit, setPostLimit] = useState(10);
   const [hasMore, setHasMore] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -141,9 +143,14 @@ export default function Home() {
   };
 
   const handleGenerateAIPost = async () => {
-    if (!user) {
+    if (!user || !userProfile) {
       toast.error('Please sign in to use AI features');
       setAuthModalOpen(true);
+      return;
+    }
+
+    if (!userProfile.isPro) {
+      setPremiumModalOpen(true);
       return;
     }
 
@@ -395,7 +402,7 @@ export default function Home() {
       {/* Feed */}
       <div className="divide-y divide-zinc-900">
         {posts.map(post => (
-          <PostCard key={post.id} post={post} onLike={handleLike} currentUser={user} />
+          <PostCard key={post.id} post={post} onLike={handleLike} currentUser={user} userProfile={userProfile} />
         ))}
       </div>
       
@@ -413,8 +420,9 @@ export default function Home() {
   );
 }
 
-export function PostCard({ post, onLike, currentUser }: { post: any, onLike: any, currentUser: any }) {
+export function PostCard({ post, onLike, currentUser, userProfile }: { post: any, onLike: any, currentUser: any, userProfile?: any }) {
   const navigate = useNavigate();
+  const { setPremiumModalOpen } = useAppStore();
   const [isLiked, setIsLiked] = useState(false);
   const [localLikesCount, setLocalLikesCount] = useState(post.likesCount || 0);
   const [showComments, setShowComments] = useState(false);
@@ -466,8 +474,13 @@ export function PostCard({ post, onLike, currentUser }: { post: any, onLike: any
   };
 
   const handleGenerateAIComment = async () => {
-    if (!currentUser) {
+    if (!currentUser || !userProfile) {
       toast.error('Please sign in to use AI features');
+      return;
+    }
+
+    if (!userProfile.isPro) {
+      setPremiumModalOpen(true);
       return;
     }
 

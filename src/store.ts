@@ -26,6 +26,8 @@ interface AppState {
   setTheme: (theme: 'light' | 'dark') => void;
   isAuthModalOpen: boolean;
   setAuthModalOpen: (isOpen: boolean) => void;
+  isPremiumModalOpen: boolean;
+  setPremiumModalOpen: (isOpen: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -44,4 +46,6 @@ export const useAppStore = create<AppState>((set) => ({
   },
   isAuthModalOpen: false,
   setAuthModalOpen: (isOpen) => set({ isAuthModalOpen: isOpen }),
+  isPremiumModalOpen: false,
+  setPremiumModalOpen: (isOpen) => set({ isPremiumModalOpen: isOpen }),
 }));

@@ -5,7 +5,6 @@ import { db } from '../firebase';
 import { DollarSign, TrendingUp, ArrowUpRight, ArrowDownRight, Clock, CheckCircle2, XCircle, CreditCard, Download, Package, Activity } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
-import { usePaystackPayment } from 'react-paystack';
 import { useAppStore } from '../store';
 import {
   AreaChart,
@@ -99,7 +98,7 @@ export default function CreatorDashboard() {
 
     setIsWithdrawing(true);
     try {
-      // In a real app, this would call a Cloud Function to securely process the withdrawal via Paystack API
+      // In a real app, this would call a Cloud Function to securely process the withdrawal via Stripe API
       // For this demo, we'll just record the withdrawal request
       
       await addDoc(collection(db, 'transactions'), {
@@ -421,7 +420,7 @@ export default function CreatorDashboard() {
           </button>
         </form>
         <p className="text-xs text-zinc-500 mt-3">
-          Withdrawals are processed via Paystack and typically take 1-2 business days.
+          Withdrawals are processed via Stripe and typically take 1-2 business days.
         </p>
       </div>
 

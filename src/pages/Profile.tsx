@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { doc, updateDoc, collection, query, where, getDocs, orderBy, addDoc, getDoc, onSnapshot, serverTimestamp, limit } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Settings, Edit3, Camera, MapPin, Link as LinkIcon, Calendar, Wallet, TrendingUp, Users, Image as ImageIcon, Video, FileText, Heart, MessageCircle, X } from 'lucide-react';
+import { Settings, Edit3, Camera, MapPin, Link as LinkIcon, Calendar, Wallet, TrendingUp, Users, Image as ImageIcon, Video, FileText, Heart, MessageCircle, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Link, useParams, useNavigate } from 'react-router-dom';
@@ -40,7 +40,7 @@ export default function Profile() {
   const { userId } = useParams();
   const { user, userProfile: currentUserProfile } = useAuth();
   const navigate = useNavigate();
-  const { setAuthModalOpen } = useAppStore();
+  const { setAuthModalOpen, setPremiumModalOpen } = useAppStore();
   const [userProfile, setUserProfile] = useState<any>(null);
   const isOwnProfile = !userId || (user && userId === user.uid);
   
@@ -175,6 +175,91 @@ export default function Profile() {
     }
   };
 
+  const [isGeneratingBio, setIsGeneratingBio] = useState(false);
+
+  const handleGenerateAIBio = async () => {
+    if (!user || !userProfile) return;
+
+    if (!userProfile.isPro) {
+      setPremiumModalOpen(true);
+      return;
+    }
+
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+      toast.error('Gemini API Key is missing. Please configure it in your environment variables.');
+      return;
+    }
+
+    setIsGeneratingBio(true);
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const prompt = `Task: Write a short, professional, and catchy bio for a social media profile. The user's name is ${editForm.displayName || userProfile.displayName}. ${editForm.location ? `They are located in ${editForm.location}.` : ''} Keep it under 150 characters. DO NOT repeat this prompt. Start directly with the bio.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+      });
+
+      if (response.text) {
+        setEditForm({ ...editForm, bio: response.text.trim() });
+        toast.success('Bio generated successfully!');
+      }
+    } catch (error) {
+      console.error("Error generating bio:", error);
+      toast.error("Failed to generate bio. Please try again.");
+    } finally {
+      setIsGeneratingBio(false);
+    }
+  };
+
+  const [isGeneratingProductDesc, setIsGeneratingProductDesc] = useState(false);
+
+  const handleGenerateAIProductDesc = async () => {
+    if (!user || !userProfile) return;
+
+    if (!userProfile.isPro) {
+      setPremiumModalOpen(true);
+      return;
+    }
+
+    if (!productForm.title) {
+      toast.error('Please enter a product title first to generate a description.');
+      return;
+    }
+
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+      toast.error('Gemini API Key is missing. Please configure it in your environment variables.');
+      return;
+    }
+
+    setIsGeneratingProductDesc(true);
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const prompt = `Task: Write a compelling and professional product description for a digital product. The product title is "${productForm.title}". The category is "${productForm.category}". Make it engaging, highlight potential benefits, and keep it under 300 words. DO NOT repeat this prompt. Start directly with the description.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+      });
+
+      if (response.text) {
+        setProductForm({ ...productForm, description: response.text.trim() });
+        toast.success('Product description generated successfully!');
+      }
+    } catch (error) {
+      console.error("Error generating product description:", error);
+      toast.error("Failed to generate product description. Please try again.");
+    } finally {
+      setIsGeneratingProductDesc(false);
+    }
+  };
+
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !userProfile) return;
@@ -251,8 +336,8 @@ export default function Profile() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
-    if (file.size > 1048576) { // 1MB limit
-      toast.error('Image must be less than 1MB');
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit before compression
+      toast.error('Image must be less than 5MB');
       return;
     }
 
@@ -260,8 +345,11 @@ export default function Profile() {
     reader.onloadend = async () => {
       try {
         const base64Image = reader.result as string;
+        // Compress the image before uploading to save space in Firestore
+        const compressedImage = await compressImage(base64Image, 400, 0.8);
+        
         await updateDoc(doc(db, 'users', user.uid), {
-          photoURL: base64Image,
+          photoURL: compressedImage,
           updatedAt: new Date().toISOString()
         });
         toast.success('Profile photo updated!');
@@ -415,7 +503,18 @@ export default function Profile() {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">Bio</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider">Bio</label>
+                <button
+                  type="button"
+                  onClick={handleGenerateAIBio}
+                  disabled={isGeneratingBio}
+                  className="text-xs flex items-center gap-1 text-purple-400 hover:text-purple-300 transition-colors disabled:opacity-50"
+                >
+                  <Sparkles className={`w-3 h-3 ${isGeneratingBio ? 'animate-pulse' : ''}`} />
+                  {isGeneratingBio ? 'Generating...' : 'AI Generate'}
+                </button>
+              </div>
               <textarea 
                 value={editForm.bio}
                 onChange={e => setEditForm({...editForm, bio: e.target.value})}
@@ -733,7 +832,18 @@ export default function Profile() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1">Description</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-sm font-medium text-zinc-400">Description</label>
+                  <button
+                    type="button"
+                    onClick={handleGenerateAIProductDesc}
+                    disabled={isGeneratingProductDesc || !productForm.title}
+                    className="text-xs flex items-center gap-1 text-purple-400 hover:text-purple-300 transition-colors disabled:opacity-50"
+                  >
+                    <Sparkles className={`w-3 h-3 ${isGeneratingProductDesc ? 'animate-pulse' : ''}`} />
+                    {isGeneratingProductDesc ? 'Generating...' : 'AI Generate'}
+                  </button>
+                </div>
                 <textarea 
                   value={productForm.description}
                   onChange={e => setProductForm({...productForm, description: e.target.value})}

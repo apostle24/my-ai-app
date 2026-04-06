@@ -21,7 +21,7 @@ const categories = [
 
 const models = [
   { id: 'gemini-3-flash-preview', name: 'Gemini Flash', description: 'Fast & efficient for most tasks', icon: Zap },
-  { id: 'gemini-3.1-pro-preview', name: 'Gemini Pro', description: 'Advanced reasoning & complex tasks', icon: Cpu },
+  { id: 'gemini-3-flash-preview-pro', name: 'Gemini Pro (Flash)', description: 'Advanced reasoning & complex tasks', icon: Cpu },
   { id: 'gemini-2.5-flash-image', name: 'Gemini Image', description: 'Generate high-quality images', icon: ImageIcon },
 ];
 
@@ -57,7 +57,7 @@ export default function AIStudio() {
   const { user, userProfile } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { setAuthModalOpen } = useAppStore();
+  const { setAuthModalOpen, setPremiumModalOpen } = useAppStore();
   const [selectedCategory, setSelectedCategory] = useState(categories[0]);
   const [selectedModel, setSelectedModel] = useState(models[0]);
   const [customPrompt, setCustomPrompt] = useState('');
@@ -65,6 +65,7 @@ export default function AIStudio() {
   const [result, setResult] = useState<any | null>(null);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [runTour, setRunTour] = useState(false);
+  const [imageAspectRatio, setImageAspectRatio] = useState('1:1');
 
   const tourSteps: Step[] = [
     {
@@ -117,7 +118,7 @@ export default function AIStudio() {
       window.history.replaceState({}, document.title);
     }
     
-    // Check for Paystack redirect
+    // Check for Stripe redirect
     const searchParams = new URLSearchParams(location.search);
     if (searchParams.get('upgrade_success') === 'true') {
       toast.success('Successfully upgraded to Pro! You now have unlimited credits.');
@@ -147,29 +148,7 @@ export default function AIStudio() {
       return;
     }
     
-    setIsUpgrading(true);
-    try {
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email,
-          origin: window.location.origin,
-          isUpgrade: true
-        })
-      });
-
-      const data = await response.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error(data.error || 'Failed to initialize checkout');
-      }
-    } catch (error: any) {
-      console.error('Checkout error:', error);
-      toast.error(error.message || 'Failed to start checkout process');
-      setIsUpgrading(false);
-    }
+    setPremiumModalOpen(true);
   };
 
   const handleGenerate = async () => {
@@ -208,7 +187,7 @@ export default function AIStudio() {
           },
           config: {
             imageConfig: {
-              aspectRatio: "1:1"
+              aspectRatio: imageAspectRatio
             }
           }
         });
@@ -261,7 +240,7 @@ CRITICAL INSTRUCTIONS:
 5. Format the output in clean Markdown.`;
 
         const response = await ai.models.generateContent({
-          model: 'gemini-3.1-pro-preview',
+          model: selectedModel.id === 'gemini-3-flash-preview-pro' ? 'gemini-3-flash-preview' : selectedModel.id,
           contents: prompt,
           config: {
             systemInstruction: "You are an expert AI author and creator. You write full books, comprehensive websites, detailed apps, and extensive business plans. NEVER repeat the user's prompt. ALWAYS start directly with the requested content (Title, Introduction, etc.). Write extremely long, comprehensive, and detailed content from beginning to end without stopping.",
@@ -522,6 +501,27 @@ CRITICAL INSTRUCTIONS:
               })}
             </div>
           </div>
+
+          {/* Image Settings */}
+          {selectedModel.id === 'gemini-2.5-flash-image' && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-xl">
+              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4">Image Settings</h3>
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-2">Aspect Ratio</label>
+                <select
+                  value={imageAspectRatio}
+                  onChange={(e) => setImageAspectRatio(e.target.value)}
+                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                >
+                  <option value="1:1">Square (1:1)</option>
+                  <option value="3:4">Portrait (3:4)</option>
+                  <option value="4:3">Landscape (4:3)</option>
+                  <option value="9:16">Vertical (9:16)</option>
+                  <option value="16:9">Widescreen (16:9)</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Input & Results */}
