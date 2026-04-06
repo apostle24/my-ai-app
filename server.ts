@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import webpush from "web-push";
 import fs from "fs";
 import path from "path";
+import Stripe from "stripe";
 
 async function startServer() {
   const app = express();
@@ -54,55 +55,74 @@ async function startServer() {
 
   app.post("/api/create-checkout-session", async (req, res) => {
     try {
-      const key = process.env.PAYSTACK_SECRET_KEY;
-      const { product, origin, email, isUpgrade } = req.body;
+      const key = process.env.STRIPE_SECRET_KEY;
+      const { product, origin, email, isUpgrade, interval } = req.body;
 
-      // If no valid Paystack key is provided, simulate a successful checkout for testing purposes
-      if (!key || key === 'your_paystack_secret_key_here' || key.includes('sk_test_')) {
-        console.warn("PAYSTACK_SECRET_KEY is missing or invalid. Using mock checkout session for testing.");
+      // If no valid Stripe key is provided, simulate a successful checkout for testing purposes
+      if (!key || key === 'your_stripe_secret_key_here') {
+        console.warn("STRIPE_SECRET_KEY is missing or invalid. Using mock checkout session for testing.");
         const redirectUrl = isUpgrade 
           ? `${origin}/#/ai-studio?upgrade_success=true` 
           : `${origin}/#/marketplace?success=true&productId=${product?.id}`;
         return res.json({ url: redirectUrl });
       }
 
-      const amount = isUpgrade ? 4900 : Math.round(product.price * 100 * 1.08); // 49.00 GHS for upgrade
-      const callbackUrl = isUpgrade 
+      const stripe = new Stripe(key);
+      const successUrl = isUpgrade 
         ? `${origin}/#/ai-studio?upgrade_success=true`
         : `${origin}/#/marketplace?success=true&productId=${product?.id}`;
       const cancelUrl = isUpgrade
         ? `${origin}/#/ai-studio?canceled=true`
         : `${origin}/#/marketplace?canceled=true`;
 
-      // Create a Paystack Checkout Session
-      const response = await fetch('https://api.paystack.co/transaction/initialize', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${key}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          email: email || 'customer@example.com',
-          amount: amount,
-          currency: 'GHS', // Explicitly set to GHS (Ghana Cedis)
-          channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer'], // Enable cards and multiple systems
-          callback_url: callbackUrl,
-          metadata: {
-            cancel_action: cancelUrl,
-            product_name: isUpgrade ? 'Pro Upgrade' : product?.title
-          }
-        })
-      });
+      let sessionParams: any = {
+        payment_method_types: ['card'],
+        customer_email: email || undefined,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      };
 
-      const data = await response.json();
-
-      if (data.status && data.data && data.data.authorization_url) {
-        res.json({ url: data.data.authorization_url });
+      if (isUpgrade) {
+        // Subscription mode
+        const amount = interval === 'year' ? 9900 : 999; // $99.00/year or $9.99/month
+        sessionParams.mode = 'subscription';
+        sessionParams.line_items = [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: `Pro Upgrade (${interval === 'year' ? 'Yearly' : 'Monthly'})`,
+              },
+              unit_amount: amount,
+              recurring: {
+                interval: interval === 'year' ? 'year' : 'month',
+              },
+            },
+            quantity: 1,
+          },
+        ];
       } else {
-        throw new Error(data.message || 'Failed to create Paystack session');
+        // One-time payment mode for marketplace products
+        const amount = Math.round(product.price * 100 * 1.08); // Include 8% tax/fee
+        sessionParams.mode = 'payment';
+        sessionParams.line_items = [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: product?.title || 'Digital Product',
+              },
+              unit_amount: amount,
+            },
+            quantity: 1,
+          },
+        ];
       }
+
+      const session = await stripe.checkout.sessions.create(sessionParams);
+      res.json({ url: session.url });
     } catch (error: any) {
-      console.error("Paystack error:", error);
+      console.error("Stripe error:", error);
       res.status(500).json({ error: error.message });
     }
   });
