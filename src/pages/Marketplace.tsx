@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 
+import { usePaystackPayment } from 'react-paystack';
+
 const compressImage = (base64Str: string, maxWidth = 800, quality = 0.7): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -39,6 +41,45 @@ const BuyButton = ({ product, user, className, children, onClick }: { product: a
   const { setAuthModalOpen } = useAppStore();
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const amount = Math.round(Number(product.price) * 100);
+
+  const config = {
+    reference: (new Date()).getTime().toString(),
+    email: user?.email || '',
+    amount: amount > 0 ? amount : 100, // Paystack requires amount > 0
+    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_your_paystack_key',
+    currency: 'GHS',
+  };
+
+  const initializePayment = usePaystackPayment(config);
+
+  const onSuccess = async (reference: any) => {
+    try {
+      await addDoc(collection(db, 'transactions'), {
+        userId: user.uid,
+        creatorId: product.creatorId || 'unknown',
+        itemId: product.id,
+        amount: Number(product.price) || 0,
+        type: 'purchase',
+        status: 'success',
+        reference: reference.reference,
+        createdAt: new Date().toISOString()
+      });
+      toast.success('Payment successful! Your purchase is complete.');
+      if (onClick) onClick();
+    } catch (error) {
+      console.error('Error recording transaction:', error);
+      toast.error('Payment successful, but failed to record transaction.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const onClosePayment = () => {
+    toast.error('Payment canceled');
+    setIsProcessing(false);
+  };
+
   const handlePurchase = async () => {
     if (!user) {
       toast.error('Please sign in to purchase');
@@ -46,47 +87,20 @@ const BuyButton = ({ product, user, className, children, onClick }: { product: a
       return;
     }
 
-    setIsProcessing(true);
-    try {
-      // Record pending transaction
-      const docRef = await addDoc(collection(db, 'transactions'), {
-        userId: user.uid,
-        creatorId: product.creatorId || 'unknown',
-        itemId: product.id,
-        amount: Number(product.price) || 0,
-        type: 'purchase',
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      });
-
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product: product,
-          email: user.email,
-          origin: window.location.origin
-        })
-      });
-
-      const data = await response.json();
-      if (data.url) {
-        if (data.url.includes(window.location.origin)) {
-          window.location.href = data.url;
-        } else {
-          window.open(data.url, '_blank');
-        }
-      } else {
-        throw new Error(data.error || 'Failed to initialize checkout');
-      }
-      
-      if (onClick) onClick();
-    } catch (error: any) {
-      console.error("Error initiating purchase:", error);
-      toast.error(error.message || "Failed to initiate purchase");
-    } finally {
-      setIsProcessing(false);
+    if (amount <= 0) {
+      // Handle free product
+      setIsProcessing(true);
+      await onSuccess({ reference: 'free_item_' + Date.now() });
+      return;
     }
+
+    if (!import.meta.env.VITE_PAYSTACK_PUBLIC_KEY) {
+      toast.error('Paystack Public Key is missing. Please configure VITE_PAYSTACK_PUBLIC_KEY in your environment variables.');
+      return;
+    }
+
+    setIsProcessing(true);
+    initializePayment({ onSuccess, onClose: onClosePayment });
   };
 
   return (
@@ -131,7 +145,7 @@ const ProductCard = ({ product, user, setSelectedProduct }: { product: any, user
       <div className="p-5 flex flex-col flex-1">
         <div className="flex justify-between items-start mb-2">
           <h3 className="text-lg font-bold text-white line-clamp-1">{product.title}</h3>
-          <span className="text-lg font-bold text-indigo-400">${Number(product.price).toFixed(2)}</span>
+          <span className="text-lg font-bold text-indigo-400">GH₵{Number(product.price).toFixed(2)}</span>
         </div>
         <p className="text-zinc-400 text-sm line-clamp-2 mb-4 flex-1">
           {product.description}
@@ -326,21 +340,23 @@ export default function Marketplace() {
             id: 'p1',
             title: 'Ultimate Notion Life Planner',
             description: 'Organize your entire life with this comprehensive Notion system. Includes habit tracker, finance dashboard, and goal setting.',
-            price: 19.99,
+            price: 300.00,
             category: 'Template',
             creatorName: 'Sarah Jenkins',
             creatorId: 'c1',
-            imageUrl: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800'
+            imageUrl: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800',
+            features: ['Daily & Weekly Planners', 'Finance & Budget Tracker', 'Habit & Goal Tracking', 'Lifetime Updates']
           },
           {
             id: 'p2',
             title: 'Social Media Content Calendar',
             description: 'Plan 30 days of content in 1 hour with this Airtable template. Perfect for creators and agencies.',
-            price: 12.00,
+            price: 180.00,
             category: 'Template',
             creatorName: 'Marcus Chen',
             creatorId: 'c2',
-            imageUrl: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=800'
+            imageUrl: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=800',
+            features: ['30-Day Content Strategy', 'Platform-Specific Formats', 'Analytics Tracking', 'Collaboration Ready']
           },
           {
             id: 'p3',
@@ -350,37 +366,74 @@ export default function Marketplace() {
             category: 'Document',
             creatorName: 'Elena Rodriguez',
             creatorId: 'c3',
-            imageUrl: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800'
+            imageUrl: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800',
+            features: ['Auto-calculating Totals', 'Tax & Discount Fields', 'Professional Design', 'Export to PDF']
           },
           {
             id: 'p4',
             title: 'Startup Pitch Deck',
             description: 'The exact pitch deck template used to raise $1M+. Includes slide-by-slide instructions and examples.',
-            price: 29.00,
+            price: 450.00,
             category: 'Presentation',
             creatorName: 'David Kim',
             creatorId: 'c4',
-            imageUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=800'
+            imageUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=800',
+            features: ['15+ Slide Templates', 'Investor-Approved Structure', 'Financial Model Included', 'Figma & PowerPoint Formats']
           },
           {
             id: 'p5',
             title: 'ChatGPT Marketing Prompts',
             description: '100+ tested ChatGPT prompts for marketers, copywriters, and SEO specialists.',
-            price: 9.99,
+            price: 150.00,
             category: 'AI Prompt',
             creatorName: 'Alex Rivera',
             creatorId: 'c5',
-            imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800'
+            imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
+            features: ['100+ Copy/Paste Prompts', 'SEO Optimization Prompts', 'Email Marketing Sequences', 'Social Media Hooks']
           },
           {
             id: 'p6',
             title: 'Mastering React Hooks',
             description: 'A comprehensive video course on advanced React Hooks patterns and performance optimization.',
-            price: 49.00,
+            price: 750.00,
             category: 'Course',
             creatorName: 'Tech Academy',
             creatorId: 'c6',
-            imageUrl: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800'
+            imageUrl: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800',
+            features: ['4 Hours of Video Content', 'Custom Hooks Patterns', 'Performance Optimization', 'Certificate of Completion']
+          },
+          {
+            id: 'p7',
+            title: 'SaaS Landing Page UI Kit',
+            description: 'A premium, high-converting UI kit for SaaS companies. Includes 50+ components and 5 full page designs in Figma.',
+            price: 600.00,
+            category: 'Template',
+            creatorName: 'Design Studio',
+            creatorId: 'c7',
+            imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800',
+            features: ['50+ UI Components', '5 Full Landing Pages', 'Responsive Design', 'Figma Source Files']
+          },
+          {
+            id: 'p8',
+            title: 'Complete SEO Audit Checklist',
+            description: 'The ultimate 150-point SEO checklist used by top agencies to rank websites on page 1 of Google.',
+            price: 220.00,
+            category: 'Document',
+            creatorName: 'Growth Hackers',
+            creatorId: 'c8',
+            imageUrl: 'https://images.unsplash.com/photo-1432888498266-38ffec3eaf0a?w=800',
+            features: ['150+ Actionable Points', 'Technical SEO Checks', 'On-Page & Off-Page SEO', 'Google Sheets Format']
+          },
+          {
+            id: 'p9',
+            title: 'AI Image Generation Masterclass',
+            description: 'Learn how to write perfect prompts for Midjourney, DALL-E 3, and Stable Diffusion to create stunning artwork.',
+            price: 380.00,
+            category: 'Course',
+            creatorName: 'AI Artists',
+            creatorId: 'c9',
+            imageUrl: 'https://images.unsplash.com/photo-1686191128892-3b370f3c582c?w=800',
+            features: ['Midjourney V6 Techniques', 'DALL-E 3 Integration', 'Prompt Engineering Secrets', 'Commercial Rights Guide']
           }
         ]);
       } else {
@@ -603,7 +656,7 @@ export default function Marketplace() {
             <div className="p-6 overflow-y-auto flex-1">
               <div className="flex justify-between items-start mb-4">
                 <h2 className="text-2xl font-bold text-white">{selectedProduct.title}</h2>
-                <span className="text-2xl font-bold text-indigo-400">${Number(selectedProduct.price).toFixed(2)}</span>
+                <span className="text-2xl font-bold text-indigo-400">GH₵{Number(selectedProduct.price).toFixed(2)}</span>
               </div>
               
               <div className="flex items-center gap-3 mb-6 pb-6 border-b border-zinc-800">

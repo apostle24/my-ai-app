@@ -4,7 +4,7 @@ import { doc, updateDoc, collection, query, where, getDocs, orderBy, addDoc, get
 import { db } from '../firebase';
 import { Settings, Edit3, Camera, MapPin, Link as LinkIcon, Calendar, Wallet, TrendingUp, Users, Image as ImageIcon, Video, FileText, Heart, MessageCircle, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 
@@ -670,6 +670,20 @@ export default function Profile() {
                     onClick={() => navigate(`/post/${post.id}`)}
                     className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-4 cursor-pointer hover:bg-zinc-900 transition-colors"
                   >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <img referrerPolicy="no-referrer" src={post.authorPhoto || `https://ui-avatars.com/api/?name=${post.authorName}`} alt={post.authorName} className="w-8 h-8 rounded-full object-cover" />
+                        <div>
+                          <p className="text-sm font-medium text-white">{post.authorName}</p>
+                          <p className="text-xs text-zinc-500">{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'just now'}</p>
+                        </div>
+                      </div>
+                      {post.category && (
+                        <span className="text-xs px-2 py-1 bg-zinc-800 text-zinc-300 rounded-full">
+                          {post.category}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-zinc-200 mb-3">{post.content}</p>
                     {post.imageUrl && (
                       <div className="rounded-xl overflow-hidden">

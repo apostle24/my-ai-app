@@ -542,6 +542,31 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
     }
   };
 
+  const handleReportPost = async () => {
+    if (!currentUser) {
+      toast.error('Please sign in to report posts');
+      return;
+    }
+    
+    const reason = window.prompt('Please provide a reason for reporting this post:');
+    if (!reason) return;
+
+    try {
+      await addDoc(collection(db, 'reports'), {
+        postId: post.id,
+        reporterId: currentUser.uid,
+        reason: reason,
+        createdAt: new Date().toISOString(),
+        status: 'pending'
+      });
+      toast.success('Post reported successfully. Our team will review it.');
+      setShowMenu(false);
+    } catch (error) {
+      console.error("Error reporting post:", error);
+      toast.error('Failed to report post');
+    }
+  };
+
   const handleShare = async () => {
     const url = `${window.location.origin}/#/post/${post.id}`;
     if (navigator.share) {
@@ -658,7 +683,7 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
                     </>
                   ) : (
                     <button 
-                      onClick={() => { toast.info('Reported'); setShowMenu(false); }}
+                      onClick={handleReportPost}
                       className="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-zinc-800"
                     >
                       Report Post

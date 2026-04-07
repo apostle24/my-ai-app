@@ -58,13 +58,9 @@ async function startServer() {
       const key = process.env.STRIPE_SECRET_KEY;
       const { product, origin, email, isUpgrade, interval } = req.body;
 
-      // If no valid Stripe key is provided, simulate a successful checkout for testing purposes
       if (!key || key === 'your_stripe_secret_key_here') {
-        console.warn("STRIPE_SECRET_KEY is missing or invalid. Using mock checkout session for testing.");
-        const redirectUrl = isUpgrade 
-          ? `${origin}/#/ai-studio?upgrade_success=true` 
-          : `${origin}/#/marketplace?success=true&productId=${product?.id}`;
-        return res.json({ url: redirectUrl });
+        console.error("STRIPE_SECRET_KEY is missing. Cannot process real payments.");
+        return res.status(500).json({ error: 'Stripe Secret Key is not configured. Please add STRIPE_SECRET_KEY to your environment variables to enable real payments.' });
       }
 
       const stripe = new Stripe(key);

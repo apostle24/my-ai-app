@@ -2,6 +2,9 @@ import { useState } from "react";
 import { X, Check, Zap } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
+import { usePaystackPayment } from 'react-paystack';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface PremiumModalProps {
   isOpen: boolean;
@@ -13,7 +16,41 @@ export default function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [interval, setInterval] = useState<'month' | 'year'>('month');
 
-  if (!isOpen) return null;
+  const amount = interval === 'month' ? 15000 : 150000; // Amount in pesewas (GH₵150 and GH₵1500)
+
+  const config = {
+    reference: (new Date()).getTime().toString(),
+    email: user?.email || '',
+    amount: amount,
+    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_your_paystack_key',
+    currency: 'GHS',
+  };
+
+  const initializePayment = usePaystackPayment(config);
+
+  const onSuccess = async (reference: any) => {
+    try {
+      if (user) {
+        await updateDoc(doc(db, 'users', user.uid), {
+          isPro: true,
+          credits: 9999
+        });
+      }
+      toast.success('Successfully upgraded to Pro! You now have unlimited credits.');
+      onClose();
+      window.location.reload();
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      toast.error('Payment successful, but failed to update profile. Please contact support.');
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
+
+  const onClosePayment = () => {
+    toast.error('Payment canceled');
+    setIsUpgrading(false);
+  };
 
   const handleUpgrade = async () => {
     if (!user) {
@@ -21,37 +58,16 @@ export default function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
       return;
     }
     
-    setIsUpgrading(true);
-    try {
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email,
-          origin: window.location.origin,
-          isUpgrade: true,
-          interval
-        })
-      });
-
-      const data = await response.json();
-      if (data.url) {
-        if (data.url.includes(window.location.origin)) {
-          window.location.href = data.url;
-        } else {
-          window.open(data.url, '_blank');
-        }
-        onClose();
-        setIsUpgrading(false);
-      } else {
-        throw new Error(data.error || 'Failed to initialize checkout');
-      }
-    } catch (error: any) {
-      console.error('Checkout error:', error);
-      toast.error(error.message || 'Failed to start checkout process');
-      setIsUpgrading(false);
+    if (!import.meta.env.VITE_PAYSTACK_PUBLIC_KEY) {
+      toast.error('Paystack Public Key is missing. Please configure VITE_PAYSTACK_PUBLIC_KEY in your environment variables.');
+      return;
     }
+
+    setIsUpgrading(true);
+    initializePayment({ onSuccess, onClose: onClosePayment });
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -87,7 +103,7 @@ export default function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8 text-left">
             <div className="flex items-baseline gap-2 mb-6">
-              <span className="text-4xl font-bold text-white">${interval === 'month' ? '9.99' : '99.00'}</span>
+              <span className="text-4xl font-bold text-white">GH₵{interval === 'month' ? '150' : '1500'}</span>
               <span className="text-zinc-400">/{interval === 'month' ? 'mo' : 'yr'}</span>
             </div>
             <ul className="space-y-4">

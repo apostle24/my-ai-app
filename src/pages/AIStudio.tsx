@@ -283,7 +283,11 @@ CRITICAL INSTRUCTIONS:
       toast.success(`${selectedCategory.name} generated successfully!`);
     } catch (error: any) {
       console.error("Error generating AI content:", error);
-      toast.error(error.message || 'Failed to generate content. Please try again.');
+      if (error.message?.includes('API key expired') || error.message?.includes('API_KEY_INVALID')) {
+        toast.error('The AI service is currently unavailable (API Key Expired). Please contact the administrator to update the Gemini API Key.');
+      } else {
+        toast.error(error.message || 'Failed to generate content. Please try again.');
+      }
     } finally {
       setIsGenerating(false);
     }
