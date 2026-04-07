@@ -41,7 +41,17 @@ export async function subscribeToPushNotifications(userId: string) {
     if (!response.ok) {
       throw new Error('Failed to fetch VAPID public key');
     }
-    const { publicKey } = await response.json();
+    
+    let publicKey;
+    try {
+      const data = await response.json();
+      publicKey = data.publicKey;
+    } catch (e) {
+      console.warn('Push notifications are not fully configured on this environment (missing VAPID key endpoint).');
+      return;
+    }
+
+    if (!publicKey) return;
 
     // Subscribe to push notifications
     let subscription = await registration.pushManager.getSubscription();
