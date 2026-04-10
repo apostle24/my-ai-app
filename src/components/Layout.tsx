@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Home, Search, Sparkles, Bell, User, PlusCircle, ShoppingBag, MessageCircle, HelpCircle, Bot } from "lucide-react";
+import { Home, Search, Sparkles, Bell, User, PlusCircle, ShoppingBag, MessageCircle, HelpCircle, Bot, Shield } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAuth } from "../contexts/AuthContext";
 import { useState, useEffect } from "react";
@@ -11,17 +11,6 @@ import PremiumModal from "./PremiumModal";
 import { useAppStore } from "../store";
 import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride';
 
-const navItems = [
-  { icon: Home, label: "Home", path: "/" },
-  { icon: Search, label: "Discover", path: "/discover" },
-  { icon: Sparkles, label: "AI Studio", path: "/ai-studio" },
-  { icon: Bot, label: "Assistant", path: "/chat" },
-  { icon: ShoppingBag, label: "Market", path: "/marketplace" },
-  { icon: MessageCircle, label: "Messages", path: "/messages" },
-  { icon: Bell, label: "Alerts", path: "/notifications", badge: true },
-  { icon: User, label: "Profile", path: "/profile" },
-];
-
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -29,6 +18,21 @@ export default function Layout() {
   const [unreadCount, setUnreadCount] = useState(0);
   const { isAuthModalOpen, setAuthModalOpen, isPremiumModalOpen, setPremiumModalOpen } = useAppStore();
   const [runGlobalTour, setRunGlobalTour] = useState(false);
+
+  const navItems = [
+    { icon: Home, label: "Home", path: "/" },
+    { icon: Search, label: "Discover", path: "/discover" },
+    { icon: Sparkles, label: "AI Studio", path: "/ai-studio" },
+    { icon: Bot, label: "Assistant", path: "/chat" },
+    { icon: ShoppingBag, label: "Market", path: "/marketplace" },
+    { icon: MessageCircle, label: "Messages", path: "/messages" },
+    { icon: Bell, label: "Alerts", path: "/notifications", badge: true },
+    { icon: User, label: "Profile", path: "/profile" },
+  ];
+
+  if (userProfile?.role === 'admin') {
+    navItems.push({ icon: Shield, label: "Admin", path: "/admin" });
+  }
 
   const globalTourSteps: Step[] = [
     {

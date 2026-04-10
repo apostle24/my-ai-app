@@ -8,7 +8,6 @@ import { toast } from 'sonner';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import Statuses from '../components/Statuses';
-import CameraCapture from '../components/CameraCapture';
 import { GoogleGenAI } from "@google/genai";
 
 const CATEGORIES = ['General', 'Technology', 'Design', 'Business', 'Life', 'Art', 'Gaming'];
@@ -20,12 +19,13 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [newPostContent, setNewPostContent] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('General');
   const [postLimit, setPostLimit] = useState(10);
   const [hasMore, setHasMore] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const observerTarget = useRef<HTMLDivElement>(null);
@@ -130,10 +130,11 @@ export default function Home() {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 1048576) { // 1MB limit
-        toast.error('Image must be less than 1MB');
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        toast.error('File must be less than 10MB');
         return;
       }
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setSelectedImage(reader.result as string);
@@ -195,7 +196,29 @@ export default function Home() {
     }
     if (!newPostContent.trim() && !selectedImage) return;
 
+    setIsUploading(true);
     try {
+      let finalImageUrl = selectedImage;
+
+      if (selectedFile) {
+        try {
+          const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+          const { storage } = await import('../firebase');
+          const fileExtension = selectedFile.name.split('.').pop();
+          const fileName = `posts/${user.uid}/${Date.now()}.${fileExtension}`;
+          const storageRef = ref(storage, fileName);
+          
+          await uploadBytes(storageRef, selectedFile);
+          finalImageUrl = await getDownloadURL(storageRef);
+        } catch (storageError) {
+          console.error("Error uploading to storage:", storageError);
+          // Fallback to base64 if storage fails (e.g. due to rules), but only if it's small enough
+          if (selectedFile.size > 1048576) {
+            throw new Error("File is too large to save without Firebase Storage. Please configure Storage rules.");
+          }
+        }
+      }
+
       const postData: any = {
         authorId: user.uid,
         authorName: userProfile.displayName || 'User',
@@ -208,18 +231,21 @@ export default function Home() {
         isDraft: isDraft
       };
       
-      if (selectedImage) {
-        postData.imageUrl = selectedImage;
+      if (finalImageUrl) {
+        postData.imageUrl = finalImageUrl;
       }
 
       await addDoc(collection(db, 'posts'), postData);
       setNewPostContent('');
       setSelectedImage(null);
+      setSelectedFile(null);
       setSelectedCategory('General');
       toast.success(isDraft ? 'Draft saved successfully!' : 'Post created successfully!');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating post:", error);
-      toast.error('Failed to create post');
+      toast.error(error.message || 'Failed to create post');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -297,12 +323,6 @@ export default function Home() {
 
       {/* Create Post */}
       <div className="p-4 border-b border-zinc-900 bg-black sticky top-0 z-10">
-        {isCameraOpen && (
-          <CameraCapture 
-            onCapture={(base64) => setSelectedImage(base64)} 
-            onClose={() => setIsCameraOpen(false)} 
-          />
-        )}
         <form onSubmit={(e) => handleCreatePost(e, false)} className="flex gap-3">
           <img referrerPolicy="no-referrer" 
             src={userProfile?.photoURL || `https://ui-avatars.com/api/?name=${userProfile?.displayName || 'User'}`} 
@@ -336,7 +356,7 @@ export default function Home() {
               <div className="flex gap-2 items-center">
                 <input 
                   type="file" 
-                  accept="image/*" 
+                  accept="image/*,video/*" 
                   className="hidden" 
                   ref={fileInputRef}
                   onChange={handleImageSelect}
@@ -345,17 +365,9 @@ export default function Home() {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="p-2 text-indigo-400 hover:bg-indigo-500/10 rounded-full transition-colors"
-                  title="Upload Image"
+                  title="Upload Media"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setIsCameraOpen(true)}
-                  className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-full transition-colors"
-                  title="Take Photo"
-                >
-                  <Camera className="w-5 h-5" />
                 </button>
                 <button 
                   type="button"
@@ -381,17 +393,24 @@ export default function Home() {
                 <button 
                   type="button"
                   onClick={(e) => handleCreatePost(e, true)}
-                  disabled={(!newPostContent.trim() && !selectedImage) || isGenerating}
+                  disabled={(!newPostContent.trim() && !selectedImage) || isGenerating || isUploading}
                   className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-1.5 rounded-full font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Draft
                 </button>
                 <button 
                   type="submit"
-                  disabled={(!newPostContent.trim() && !selectedImage) || isGenerating}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded-full font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  disabled={(!newPostContent.trim() && !selectedImage) || isGenerating || isUploading}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded-full font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
-                  Post
+                  {isUploading ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Posting...
+                    </>
+                  ) : (
+                    'Post'
+                  )}
                 </button>
               </div>
             </div>
@@ -723,7 +742,11 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
           
           {post.imageUrl && (
             <div className="mt-3 rounded-2xl overflow-hidden border border-zinc-800">
-              <img referrerPolicy="no-referrer" src={post.imageUrl} alt="Post media" className="w-full h-auto object-cover" />
+              {post.imageUrl.startsWith('data:video') ? (
+                <video src={post.imageUrl} className="w-full h-auto object-cover" controls playsInline />
+              ) : (
+                <img referrerPolicy="no-referrer" src={post.imageUrl} alt="Post media" className="w-full h-auto object-cover" />
+              )}
             </div>
           )}
 

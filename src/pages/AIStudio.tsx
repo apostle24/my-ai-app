@@ -16,13 +16,15 @@ const categories = [
   { id: 'full_book', name: 'Full Book', icon: BookOpen, color: 'text-indigo-400', bg: 'bg-indigo-400/10' },
   { id: 'website', name: 'Website Copy', icon: Globe, color: 'text-purple-400', bg: 'bg-purple-400/10' },
   { id: 'app', name: 'App Idea', icon: Smartphone, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
+  { id: 'study', name: 'Study Plan', icon: BookOpen, color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
+  { id: 'workout', name: 'Workout Plan', icon: Zap, color: 'text-orange-400', bg: 'bg-orange-400/10' },
   { id: 'cover', name: 'Book Cover', icon: ImageIcon, color: 'text-pink-400', bg: 'bg-pink-400/10' },
 ];
 
 const models = [
   { id: 'gemini-3-flash-preview', name: 'Gemini Flash', description: 'Fast & efficient for most tasks', icon: Zap },
   { id: 'gemini-3-flash-preview-pro', name: 'Gemini Pro (Flash)', description: 'Advanced reasoning & complex tasks', icon: Cpu },
-  { id: 'gemini-2.5-flash-image', name: 'Gemini Image', description: 'Generate high-quality images', icon: ImageIcon },
+  { id: 'imagen-3.0-generate-002', name: 'Gemini Image', description: 'Generate high-quality images', icon: ImageIcon },
 ];
 
 const compressImage = (base64Str: string, maxWidth = 512, quality = 0.6): Promise<string> => {
@@ -136,7 +138,7 @@ export default function AIStudio() {
   useEffect(() => {
     if (selectedCategory.id === 'cover') {
       setSelectedModel(models[2]);
-    } else if (selectedModel.id === 'gemini-2.5-flash-image') {
+    } else if (selectedModel.id === 'imagen-3.0-generate-002') {
       setSelectedModel(models[0]);
     }
   }, [selectedCategory]);
@@ -177,47 +179,27 @@ export default function AIStudio() {
       
       let generatedContent: any = null;
 
-      if (selectedModel.id === 'gemini-2.5-flash-image') {
+      if (selectedModel.id === 'imagen-3.0-generate-002') {
         // Image Generation
         const prompt = `A highly professional, stunning ${selectedCategory.name}. ${customPrompt}`;
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash-image',
-          contents: {
-            parts: [{ text: prompt }],
-          },
+        const response = await ai.models.generateImages({
+          model: 'imagen-3.0-generate-002',
+          prompt: prompt,
           config: {
-            imageConfig: {
-              aspectRatio: imageAspectRatio
-            }
+            numberOfImages: 1,
+            aspectRatio: imageAspectRatio,
+            outputMimeType: "image/jpeg",
           }
         });
 
-        let base64Data = '';
-        let textResponse = '';
-        const parts = response.candidates?.[0]?.content?.parts || [];
-        
-        for (const part of parts) {
-          if (part.inlineData) {
-            base64Data = part.inlineData.data;
-            break;
-          } else if (part.text) {
-            textResponse += part.text;
-          }
-        }
+        const base64Data = response.generatedImages?.[0]?.image?.imageBytes;
 
         if (!base64Data) {
-          const finishReason = response.candidates?.[0]?.finishReason;
-          if (textResponse) {
-            throw new Error(`AI Refused: ${textResponse}`);
-          } else if (finishReason) {
-            throw new Error(`Failed to generate image. Reason: ${finishReason}`);
-          } else {
-            throw new Error("Failed to generate image. The API returned an empty response.");
-          }
+          throw new Error("Failed to generate image. The API returned an empty response.");
         }
 
         // Use base64 string directly instead of Firebase Storage
-        const imageUrl = `data:image/png;base64,${base64Data}`;
+        const imageUrl = `data:image/jpeg;base64,${base64Data}`;
 
         generatedContent = {
           type: 'image',

@@ -41,12 +41,16 @@ const BuyButton = ({ product, user, className, children, onClick }: { product: a
   const { setAuthModalOpen } = useAppStore();
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const amount = Math.round(Number(product.price) * 100);
+  const baseAmount = Number(product.price) || 0;
+  const taxRate = 0.10; // 10% tax
+  const taxAmount = baseAmount * taxRate;
+  const totalAmount = baseAmount + taxAmount;
+  const amountInPesewas = Math.round(totalAmount * 100);
 
   const config = {
     reference: (new Date()).getTime().toString(),
     email: user?.email || '',
-    amount: amount > 0 ? amount : 100, // Paystack requires amount > 0
+    amount: amountInPesewas > 0 ? amountInPesewas : 100, // Paystack requires amount > 0
     publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_your_paystack_key',
     currency: 'GHS',
   };
@@ -59,10 +63,12 @@ const BuyButton = ({ product, user, className, children, onClick }: { product: a
         userId: user.uid,
         creatorId: product.creatorId || 'unknown',
         itemId: product.id,
-        amount: Number(product.price) || 0,
+        amount: totalAmount,
+        taxAmount: taxAmount,
+        baseAmount: baseAmount,
         type: 'purchase',
         status: 'success',
-        reference: reference.reference,
+        paymentReference: reference.reference,
         createdAt: new Date().toISOString()
       });
       toast.success('Payment successful! Your purchase is complete.');
@@ -239,7 +245,7 @@ export default function Marketplace() {
       toast.error('Please write a review');
       return;
     }
-    if (selectedProduct.id.startsWith('mock-')) {
+    if (selectedProduct.id.startsWith('mock-') || (selectedProduct.id.startsWith('p') && selectedProduct.id.length <= 3)) {
       toast.error('Cannot review demo products. Please add a real product first.');
       return;
     }
@@ -466,7 +472,7 @@ export default function Marketplace() {
       const searchLower = searchQuery.toLowerCase();
       const matchesSearch = p.title?.toLowerCase().includes(searchLower) ||
                             p.description?.toLowerCase().includes(searchLower) ||
-                            (p.features && p.features.some((f: string) => f.toLowerCase().includes(searchLower)));
+                            (p.features && Array.isArray(p.features) && p.features.some((f: string) => f.toLowerCase().includes(searchLower)));
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
       const matchesPrice = priceFilter === 'all' || 
                            (priceFilter === 'free' && Number(p.price) === 0) ||

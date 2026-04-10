@@ -15,6 +15,7 @@ import Marketplace from "./pages/Marketplace";
 import PostDetail from "./pages/PostDetail";
 import Messages from "./pages/Messages";
 import Chat from "./pages/Chat";
+import AdminDashboard from "./pages/AdminDashboard";
 import { AuthProvider } from "./contexts/AuthContext";
 import { Toaster } from 'sonner';
 import { useEffect } from "react";
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="notifications" element={<Notifications />} />
             <Route path="messages" element={<Messages />} />
             <Route path="chat" element={<Chat />} />
+            <Route path="admin" element={<AdminDashboard />} />
             <Route path="profile/:userId?" element={<Profile />} />
             <Route path="creator-dashboard" element={<CreatorDashboard />} />
             <Route path="post/:postId" element={<PostDetail />} />

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, onSnapshot, addDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, X, Send } from 'lucide-react';
+import { Plus, X, Send, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Status {
@@ -11,6 +11,7 @@ interface Status {
   userDisplayName: string;
   userPhotoURL: string;
   content: string;
+  imageUrl?: string;
   bgColor: string;
   createdAt: string;
   expiresAt: string;
@@ -33,9 +34,61 @@ export default function Statuses() {
   const [isCreating, setIsCreating] = useState(false);
   const [newStatusText, setNewStatusText] = useState('');
   const [selectedBg, setSelectedBg] = useState(BG_COLORS[0]);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [viewingUserId, setViewingUserId] = useState<string | null>(null);
   const [viewingIndex, setViewingIndex] = useState(0);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('File must be less than 10MB');
+        return;
+      }
+      setSelectedFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (file.type.startsWith('image/')) {
+          // Compress image to fit within Firestore limits
+          const img = new Image();
+          img.src = reader.result as string;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 800;
+            const MAX_HEIGHT = 800;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+              }
+            } else {
+              if (height > MAX_HEIGHT) {
+                width *= MAX_HEIGHT / height;
+                height = MAX_HEIGHT;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0, width, height);
+            setSelectedImage(canvas.toDataURL('image/jpeg', 0.7));
+            setSelectedBg('bg-black');
+          };
+        } else {
+          setSelectedImage(reader.result as string);
+          setSelectedBg('bg-black');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     // Fetch active statuses (expiresAt > now)
@@ -87,9 +140,23 @@ export default function Statuses() {
   });
 
   const handleCreateStatus = async () => {
-    if (!newStatusText.trim() || !user || !userProfile) return;
+    if ((!newStatusText.trim() && !selectedImage) || !user || !userProfile) return;
 
+    setIsUploading(true);
     try {
+      let finalImageUrl = selectedImage;
+
+      // If it's an image, we can just use the base64 string directly in Firestore
+      // since we'll compress it in handleImageSelect
+      if (selectedFile && selectedFile.type.startsWith('image/')) {
+        // We already have the base64 in selectedImage
+        finalImageUrl = selectedImage;
+      } else if (selectedFile && selectedFile.type.startsWith('video/')) {
+        toast.error('Video uploads are not fully supported yet without Firebase Storage.');
+        setIsUploading(false);
+        return;
+      }
+
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
 
@@ -98,6 +165,7 @@ export default function Statuses() {
         userDisplayName: userProfile.displayName || 'User',
         userPhotoURL: userProfile.photoURL || `https://ui-avatars.com/api/?name=${userProfile.displayName || 'User'}`,
         content: newStatusText,
+        imageUrl: finalImageUrl || null,
         bgColor: selectedBg,
         createdAt: now.toISOString(),
         expiresAt: expiresAt.toISOString()
@@ -105,10 +173,14 @@ export default function Statuses() {
 
       setIsCreating(false);
       setNewStatusText('');
+      setSelectedImage(null);
+      setSelectedFile(null);
       toast.success('Status updated!');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating status:", error);
-      toast.error('Failed to update status');
+      toast.error(error.message || 'Failed to update status');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -243,33 +315,61 @@ export default function Statuses() {
               <X className="w-6 h-6" />
             </button>
             
-            <div className="flex-1 flex items-center justify-center p-8">
+            <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
+              {selectedImage && (
+                selectedImage.startsWith('data:video') ? (
+                  <video src={selectedImage} className="absolute inset-0 w-full h-full object-cover opacity-50" autoPlay loop muted playsInline />
+                ) : (
+                  <img referrerPolicy="no-referrer" src={selectedImage} alt="Status Preview" className="absolute inset-0 w-full h-full object-cover opacity-50" />
+                )
+              )}
               <textarea
                 value={newStatusText}
                 onChange={(e) => setNewStatusText(e.target.value)}
                 placeholder="Type a status..."
-                className="w-full bg-transparent text-white text-3xl font-bold text-center resize-none outline-none placeholder-white/50"
+                className="w-full bg-transparent text-white text-3xl font-bold text-center resize-none outline-none placeholder-white/50 relative z-10"
                 rows={5}
                 autoFocus
               />
             </div>
 
-            <div className="p-4 bg-black/20 flex items-center justify-between">
-              <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+            <div className="p-4 bg-black/20 flex items-center justify-between relative z-10">
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide items-center">
+                <input 
+                  type="file" 
+                  accept="image/*,video/*" 
+                  className="hidden" 
+                  ref={fileInputRef}
+                  onChange={handleImageSelect}
+                />
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition"
+                >
+                  <ImageIcon className="w-5 h-5" />
+                </button>
+                <div className="w-px h-6 bg-white/20 mx-1"></div>
                 {BG_COLORS.map(color => (
                   <button
                     key={color}
-                    onClick={() => setSelectedBg(color)}
-                    className={`w-8 h-8 rounded-full flex-shrink-0 ${color} ${selectedBg === color ? 'ring-2 ring-white ring-offset-2 ring-offset-black' : ''}`}
+                    onClick={() => {
+                      setSelectedBg(color);
+                      setSelectedImage(null); // Clear image if color is selected
+                    }}
+                    className={`w-8 h-8 rounded-full flex-shrink-0 ${color} ${selectedBg === color && !selectedImage ? 'ring-2 ring-white ring-offset-2 ring-offset-black' : ''}`}
                   />
                 ))}
               </div>
               <button 
                 onClick={handleCreateStatus}
-                disabled={!newStatusText.trim()}
-                className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center disabled:opacity-50"
+                disabled={(!newStatusText.trim() && !selectedImage) || isUploading}
+                className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center disabled:opacity-50 flex-shrink-0 ml-2"
               >
-                <Send className="w-5 h-5 ml-1" />
+                {isUploading ? (
+                  <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5 ml-1" />
+                )}
               </button>
             </div>
           </div>
@@ -280,6 +380,14 @@ export default function Statuses() {
       {viewingUserId && currentStatus && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black">
           <div className={`w-full max-w-md h-full md:h-[90vh] md:rounded-3xl flex flex-col relative overflow-hidden ${currentStatus.bgColor}`}>
+            
+            {currentStatus.imageUrl && (
+              currentStatus.imageUrl.startsWith('data:video') ? (
+                <video src={currentStatus.imageUrl} className="absolute inset-0 w-full h-full object-cover" autoPlay loop muted playsInline />
+              ) : (
+                <img referrerPolicy="no-referrer" src={currentStatus.imageUrl} alt="Status" className="absolute inset-0 w-full h-full object-cover" />
+              )
+            )}
             
             {/* Progress Bars */}
             <div className="absolute top-4 left-0 right-0 px-4 flex gap-1 z-10">
@@ -301,14 +409,14 @@ export default function Statuses() {
               <div className="flex items-center gap-3">
                 <img referrerPolicy="no-referrer" src={currentStatus.userPhotoURL} alt="" className="w-10 h-10 rounded-full border border-white/20" />
                 <div>
-                  <h3 className="text-white font-semibold text-sm">{currentStatus.userDisplayName}</h3>
-                  <p className="text-white/70 text-xs">
+                  <h3 className="text-white font-semibold text-sm drop-shadow-md">{currentStatus.userDisplayName}</h3>
+                  <p className="text-white/90 text-xs drop-shadow-md">
                     {new Date(currentStatus.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
               </div>
-              <button onClick={closeViewer} className="p-2 text-white/80 hover:text-white">
-                <X className="w-6 h-6" />
+              <button onClick={closeViewer} className="p-2 text-white hover:bg-black/20 rounded-full transition">
+                <X className="w-6 h-6 drop-shadow-md" />
               </button>
             </div>
 
@@ -318,9 +426,11 @@ export default function Statuses() {
               <div className="absolute inset-y-0 left-0 w-1/3 z-0" onClick={prevStatus} />
               <div className="absolute inset-y-0 right-0 w-2/3 z-0" onClick={nextStatus} />
               
-              <p className="text-white text-3xl font-bold text-center z-10 pointer-events-none">
-                {currentStatus.content}
-              </p>
+              {currentStatus.content && (
+                <p className={`text-white text-3xl font-bold text-center z-10 pointer-events-none drop-shadow-lg ${currentStatus.imageUrl ? 'bg-black/40 p-4 rounded-2xl backdrop-blur-sm' : ''}`}>
+                  {currentStatus.content}
+                </p>
+              )}
             </div>
           </div>
         </div>

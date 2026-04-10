@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, updateDoc, collection, query, where, getDocs, orderBy, addDoc, getDoc, onSnapshot, serverTimestamp, limit } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, getDocs, orderBy, addDoc, getDoc, onSnapshot, serverTimestamp, limit, deleteDoc, increment, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Settings, Edit3, Camera, MapPin, Link as LinkIcon, Calendar, Wallet, TrendingUp, Users, Image as ImageIcon, Video, FileText, Heart, MessageCircle, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
@@ -72,7 +72,46 @@ export default function Profile() {
 
   // Settings state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsView, setSettingsView] = useState<'menu' | 'privacy' | 'terms' | 'support' | 'account'>('menu');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const [followListType, setFollowListType] = useState<'followers' | 'following' | null>(null);
+  const [followListUsers, setFollowListUsers] = useState<any[]>([]);
+  const [loadingFollowList, setLoadingFollowList] = useState(false);
+
+  const openFollowList = async (type: 'followers' | 'following') => {
+    if (!userProfile) return;
+    setFollowListType(type);
+    setLoadingFollowList(true);
+    setFollowListUsers([]);
+
+    try {
+      const q = query(
+        collection(db, type === 'followers' ? 'follows' : 'follows'),
+        where(type === 'followers' ? 'followingId' : 'followerId', '==', userProfile.id),
+        limit(50)
+      );
+      const snap = await getDocs(q);
+      const userIds = snap.docs.map(doc => type === 'followers' ? doc.data().followerId : doc.data().followingId);
+      
+      if (userIds.length > 0) {
+        // Fetch user profiles in chunks of 10
+        const users: any[] = [];
+        for (let i = 0; i < userIds.length; i += 10) {
+          const chunk = userIds.slice(i, i + 10);
+          const usersQ = query(collection(db, 'users'), where('uid', 'in', chunk));
+          const usersSnap = await getDocs(usersQ);
+          users.push(...usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }
+        setFollowListUsers(users);
+      }
+    } catch (error) {
+      console.error(`Error fetching ${type}:`, error);
+      toast.error(`Failed to load ${type}`);
+    } finally {
+      setLoadingFollowList(false);
+    }
+  };
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -159,6 +198,58 @@ export default function Profile() {
       unsubscribePurchases();
     };
   }, [user, userId, isOwnProfile]);
+
+  const [isFollowing, setIsFollowing] = useState(false);
+
+  useEffect(() => {
+    const checkFollowStatus = async () => {
+      if (user && userProfile && !isOwnProfile) {
+        const followDoc = await getDoc(doc(db, 'follows', `${user.uid}_${userProfile.id}`));
+        setIsFollowing(followDoc.exists());
+      }
+    };
+    checkFollowStatus();
+  }, [user, userProfile, isOwnProfile]);
+
+  const handleFollow = async () => {
+    if (!user) {
+      toast.error('Please sign in to follow users');
+      setAuthModalOpen(true);
+      return;
+    }
+
+    if (!userProfile) return;
+
+    const followId = `${user.uid}_${userProfile.id}`;
+    const followRef = doc(db, 'follows', followId);
+    const targetUserRef = doc(db, 'users', userProfile.id);
+    const currentUserRef = doc(db, 'users', user.uid);
+
+    try {
+      if (isFollowing) {
+        await deleteDoc(followRef);
+        await updateDoc(targetUserRef, { followersCount: increment(-1) });
+        await updateDoc(currentUserRef, { followingCount: increment(-1) });
+        setIsFollowing(false);
+        setUserProfile(prev => ({ ...prev, followersCount: Math.max(0, (prev.followersCount || 0) - 1) }));
+        toast.success(`Unfollowed ${userProfile.displayName}`);
+      } else {
+        await setDoc(followRef, {
+          followerId: user.uid,
+          followingId: userProfile.id,
+          createdAt: new Date().toISOString()
+        });
+        await updateDoc(targetUserRef, { followersCount: increment(1) });
+        await updateDoc(currentUserRef, { followingCount: increment(1) });
+        setIsFollowing(true);
+        setUserProfile(prev => ({ ...prev, followersCount: (prev.followersCount || 0) + 1 }));
+        toast.success(`You are now following ${userProfile.displayName}`);
+      }
+    } catch (error) {
+      console.error("Error toggling follow:", error);
+      toast.error('Failed to update follow status');
+    }
+  };
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -451,6 +542,14 @@ export default function Profile() {
                   >
                     <Edit3 className="w-4 h-4" /> Edit Profile
                   </button>
+                  {!userProfile.isPro && (
+                    <button 
+                      onClick={() => setPremiumModalOpen(true)}
+                      className="px-6 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-full font-medium transition-colors flex items-center gap-2 shadow-lg shadow-amber-500/20"
+                    >
+                      <Zap className="w-4 h-4" /> Upgrade to Pro
+                    </button>
+                  )}
                   <button 
                     onClick={() => setIsSettingsOpen(true)}
                     className="p-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-full border border-zinc-800 transition-colors"
@@ -462,10 +561,14 @@ export default function Profile() {
             ) : (
               <div className="flex items-center gap-3">
                 <button 
-                  onClick={() => toast.success(`You are now following ${userProfile.displayName}`)}
-                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold transition-colors"
+                  onClick={handleFollow}
+                  className={`px-6 py-2 rounded-full font-bold transition-colors ${
+                    isFollowing 
+                      ? 'bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                  }`}
                 >
-                  Follow
+                  {isFollowing ? 'Following' : 'Follow'}
                 </button>
                 <button 
                   onClick={handleMessage}
@@ -581,11 +684,17 @@ export default function Profile() {
             </div>
 
             <div className="flex gap-6 mb-8">
-              <div className="flex flex-col">
+              <div 
+                className="flex flex-col cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => openFollowList('followers')}
+              >
                 <span className="text-xl font-bold text-white">{userProfile.followersCount || 0}</span>
                 <span className="text-sm text-zinc-500">Followers</span>
               </div>
-              <div className="flex flex-col">
+              <div 
+                className="flex flex-col cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => openFollowList('following')}
+              >
                 <span className="text-xl font-bold text-white">{userProfile.followingCount || 0}</span>
                 <span className="text-sm text-zinc-500">Following</span>
               </div>
@@ -971,58 +1080,187 @@ export default function Profile() {
       {/* Settings Modal */}
       {isSettingsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
             <div className="flex items-center justify-between p-6 border-b border-zinc-800">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <Settings className="w-5 h-5" /> Settings
+                {settingsView === 'menu' && <><Settings className="w-5 h-5" /> Settings</>}
+                {settingsView === 'account' && 'Account Settings'}
+                {settingsView === 'privacy' && 'Privacy Policy'}
+                {settingsView === 'terms' && 'Terms of Service'}
+                {settingsView === 'support' && 'Help & Support'}
               </h2>
               <button 
-                onClick={() => setIsSettingsOpen(false)}
+                onClick={() => {
+                  if (settingsView === 'menu') {
+                    setIsSettingsOpen(false);
+                  } else {
+                    setSettingsView('menu');
+                  }
+                }}
                 className="text-zinc-400 hover:text-white transition-colors"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
             
-            <div className="p-4 space-y-2">
-              <button className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
-                <div>
-                  <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Account Settings</h3>
-                  <p className="text-sm text-zinc-500">Manage your email, password, and security</p>
-                </div>
-                <Settings className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
-              </button>
-              
-              <button className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
-                <div>
-                  <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Privacy Policy</h3>
-                  <p className="text-sm text-zinc-500">Read our data collection and usage policy</p>
-                </div>
-                <FileText className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
-              </button>
+            <div className="p-4 space-y-2 overflow-y-auto flex-1">
+              {settingsView === 'menu' && (
+                <>
+                  <button 
+                    onClick={() => setSettingsView('account')}
+                    className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group"
+                  >
+                    <div>
+                      <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Account Settings</h3>
+                      <p className="text-sm text-zinc-500">Manage your email, password, and security</p>
+                    </div>
+                    <Settings className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+                  </button>
+                  
+                  <button onClick={() => setSettingsView('privacy')} className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
+                    <div>
+                      <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Privacy Policy</h3>
+                      <p className="text-sm text-zinc-500">Read our data collection and usage policy</p>
+                    </div>
+                    <FileText className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+                  </button>
 
-              <button className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
-                <div>
-                  <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Terms of Service</h3>
-                  <p className="text-sm text-zinc-500">Rules and guidelines for using NEXUS</p>
-                </div>
-                <FileText className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
-              </button>
+                  <button onClick={() => setSettingsView('terms')} className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
+                    <div>
+                      <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Terms of Service</h3>
+                      <p className="text-sm text-zinc-500">Rules and guidelines for using NEXUS</p>
+                    </div>
+                    <FileText className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+                  </button>
 
-              <button className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
-                <div>
-                  <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Help & Support</h3>
-                  <p className="text-sm text-zinc-500">Get assistance with your account</p>
+                  <button onClick={() => setSettingsView('support')} className="w-full flex items-center justify-between p-4 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-colors text-left group">
+                    <div>
+                      <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">Help & Support</h3>
+                      <p className="text-sm text-zinc-500">Get assistance with your account</p>
+                    </div>
+                    <MessageCircle className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+                  </button>
+                </>
+              )}
+
+              {settingsView === 'account' && (
+                <div className="text-zinc-300 space-y-4 text-sm leading-relaxed">
+                  <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+                    <h3 className="text-white font-semibold mb-1">Email Address</h3>
+                    <p className="text-zinc-400">{user?.email || 'No email provided'}</p>
+                  </div>
+                  <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+                    <h3 className="text-white font-semibold mb-1">Password</h3>
+                    <button 
+                      onClick={() => toast.info('Password reset email sent!')}
+                      className="text-indigo-400 hover:text-indigo-300 text-sm font-medium"
+                    >
+                      Reset Password
+                    </button>
+                  </div>
+                  <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+                    <h3 className="text-white font-semibold mb-1">Account Actions</h3>
+                    <button 
+                      onClick={() => toast.error('Account deletion is permanent. Please contact support.')}
+                      className="text-red-400 hover:text-red-300 text-sm font-medium"
+                    >
+                      Delete Account
+                    </button>
+                  </div>
                 </div>
-                <MessageCircle className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+              )}
+
+              {settingsView === 'privacy' && (
+                <div className="text-zinc-300 space-y-4 text-sm leading-relaxed">
+                  <h3 className="text-lg font-bold text-white">1. Information We Collect</h3>
+                  <p>We collect information you provide directly to us, such as when you create or modify your account, request on-demand services, contact customer support, or otherwise communicate with us. This information may include: name, email, phone number, postal address, profile picture, payment method, items requested (for delivery services), delivery notes, and other information you choose to provide.</p>
+                  <h3 className="text-lg font-bold text-white mt-4">2. Use of Information</h3>
+                  <p>We may use the information we collect about you to Provide, maintain, and improve our Services, including, for example, to facilitate payments, send receipts, provide products and services you request (and send related information), develop new features, provide customer support to Users and Drivers, develop safety features, authenticate users, and send product updates and administrative messages.</p>
+                </div>
+              )}
+
+              {settingsView === 'terms' && (
+                <div className="text-zinc-300 space-y-4 text-sm leading-relaxed">
+                  <h3 className="text-lg font-bold text-white">1. Acceptance of Terms</h3>
+                  <p>By accessing and using our application, you accept and agree to be bound by the terms and provision of this agreement. In addition, when using these particular services, you shall be subject to any posted guidelines or rules applicable to such services.</p>
+                  <h3 className="text-lg font-bold text-white mt-4">2. User Conduct</h3>
+                  <p>You agree to use the Service only for lawful purposes. You agree not to take any action that might compromise the security of the site, render the site inaccessible to others or otherwise cause damage to the site or the Content. You agree not to add to, subtract from, or otherwise modify the Content, or to attempt to access any Content that is not intended for you.</p>
+                </div>
+              )}
+
+              {settingsView === 'support' && (
+                <div className="text-zinc-300 space-y-4 text-sm leading-relaxed text-center py-8">
+                  <MessageCircle className="w-12 h-12 text-indigo-500 mx-auto mb-4" />
+                  <h3 className="text-xl font-bold text-white">Need Help?</h3>
+                  <p>Our support team is here to help you with any issues or questions you might have.</p>
+                  <a href="mailto:support@nexus.com" className="inline-block mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-xl transition-colors">
+                    Contact Support
+                  </a>
+                </div>
+              )}
+            </div>
+            
+            {settingsView === 'menu' && (
+              <div className="p-4 border-t border-zinc-800 text-center">
+                <p className="text-xs text-zinc-600">NEXUS AI PRO v1.0.0</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Follow List Modal */}
+      {followListType && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between p-6 border-b border-zinc-800">
+              <h2 className="text-xl font-bold text-white capitalize">{followListType}</h2>
+              <button 
+                onClick={() => setFollowListType(null)}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
               </button>
             </div>
-            <div className="p-4 border-t border-zinc-800 text-center">
-              <p className="text-xs text-zinc-600">NEXUS AI PRO v1.0.0</p>
+            
+            <div className="p-4 overflow-y-auto flex-1">
+              {loadingFollowList ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : followListUsers.length > 0 ? (
+                <div className="space-y-4">
+                  {followListUsers.map(u => (
+                    <div 
+                      key={u.id} 
+                      onClick={() => {
+                        setFollowListType(null);
+                        navigate(`/profile/${u.id}`);
+                      }}
+                      className="flex items-center gap-3 p-3 hover:bg-zinc-800/50 rounded-xl cursor-pointer transition-colors"
+                    >
+                      <img 
+                        referrerPolicy="no-referrer" 
+                        src={u.photoURL || `https://ui-avatars.com/api/?name=${u.displayName || 'User'}`} 
+                        alt={u.displayName} 
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                      <div>
+                        <h3 className="font-semibold text-white">{u.displayName}</h3>
+                        <p className="text-sm text-zinc-500">@{u.username || u.id.slice(0, 8)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-zinc-500">
+                  No {followListType} yet.
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }

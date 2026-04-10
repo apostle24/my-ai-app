@@ -3,7 +3,7 @@ import { X, Check, Zap } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { usePaystackPayment } from 'react-paystack';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 interface PremiumModalProps {
@@ -34,6 +34,15 @@ export default function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
         await updateDoc(doc(db, 'users', user.uid), {
           isPro: true,
           credits: 9999
+        });
+        
+        await addDoc(collection(db, 'transactions'), {
+          userId: user.uid,
+          amount: amount / 100,
+          type: 'subscription',
+          status: 'success',
+          paymentReference: reference.reference,
+          createdAt: new Date().toISOString()
         });
       }
       toast.success('Successfully upgraded to Pro! You now have unlimited credits.');

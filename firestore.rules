@@ -120,9 +120,11 @@ service cloud.firestore {
     }
 
     function isValidTransaction(data) {
-      return hasOnlyAllowedFields(['userId', 'creatorId', 'amount', 'type', 'status', 'itemId', 'createdAt', 'paymentReference']) &&
+      return hasOnlyAllowedFields(['userId', 'creatorId', 'amount', 'taxAmount', 'baseAmount', 'type', 'status', 'itemId', 'createdAt', 'paymentReference']) &&
              data.userId is string && data.userId.size() > 0 &&
              data.amount is number && data.amount >= 0 &&
+             (!('taxAmount' in data) || (data.taxAmount is number && data.taxAmount >= 0)) &&
+             (!('baseAmount' in data) || (data.baseAmount is number && data.baseAmount >= 0)) &&
              data.type is string && data.type in ['purchase', 'tip', 'subscription', 'withdrawal'] &&
              data.status is string && data.status in ['pending', 'completed', 'failed', 'success'] &&
              data.createdAt is string && isValidDateString(data.createdAt) &&
@@ -196,11 +198,12 @@ service cloud.firestore {
     }
 
     function isValidStatus(data) {
-      return hasOnlyAllowedFields(['userId', 'userDisplayName', 'userPhotoURL', 'content', 'bgColor', 'createdAt', 'expiresAt']) &&
+      return hasOnlyAllowedFields(['userId', 'userDisplayName', 'userPhotoURL', 'content', 'imageUrl', 'bgColor', 'createdAt', 'expiresAt']) &&
              data.userId is string && data.userId.size() > 0 &&
              data.userDisplayName is string && data.userDisplayName.size() > 0 && data.userDisplayName.size() <= 100 &&
              data.userPhotoURL is string && data.userPhotoURL.size() <= 2000 &&
-             data.content is string && data.content.size() > 0 && data.content.size() <= 1000 &&
+             (!('content' in data) || (data.content is string && data.content.size() <= 1000)) &&
+             (!('imageUrl' in data) || data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 2000000)) &&
              data.bgColor is string && data.bgColor.size() > 0 && data.bgColor.size() <= 50 &&
              data.createdAt is string && isValidDateString(data.createdAt) &&
              data.expiresAt is string && isValidDateString(data.expiresAt);
@@ -253,6 +256,12 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidLike(request.resource.data);
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /follows/{followId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.followerId == request.auth.uid && isValidFollower(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.followerId == request.auth.uid;
     }
 
     match /followers/{followerId} {

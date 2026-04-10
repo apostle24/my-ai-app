@@ -73,61 +73,19 @@ export default function Discover() {
         const creatorsQ = query(collection(db, 'users'), where('isCreator', '==', true), limit(5));
         const creatorsSnap = await getDocs(creatorsQ);
         const fetchedCreators = creatorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        if (fetchedCreators.length === 0) {
-          setCreators([
-            { id: 'c1', displayName: 'Sarah Jenkins', username: 'sarahj', photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150' },
-            { id: 'c2', displayName: 'Marcus Chen', username: 'marcusc', photoURL: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150' },
-            { id: 'c3', displayName: 'Elena Rodriguez', username: 'elenar', photoURL: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150' },
-            { id: 'c4', displayName: 'David Kim', username: 'davidk', photoURL: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150' }
-          ]);
-        } else {
-          setCreators(fetchedCreators);
-        }
+        setCreators(fetchedCreators);
 
         // Fetch AI Ideas
         const aiQ = query(collection(db, 'ai_results'), orderBy('createdAt', 'desc'), limit(4));
         const aiSnap = await getDocs(aiQ);
         const fetchedAi = aiSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        if (fetchedAi.length === 0) {
-          setAiIdeas([
-            {
-              id: 'ai1',
-              prompt: 'AI Automation Agency',
-              structuredData: JSON.stringify({
-                businessName: 'AutoFlow AI',
-                explanation: 'An agency that helps small businesses automate their customer service and lead generation using custom AI chatbots.'
-              })
-            },
-            {
-              id: 'ai2',
-              prompt: 'Digital Product for Creators',
-              structuredData: JSON.stringify({
-                businessName: 'CreatorKit',
-                explanation: 'A comprehensive bundle of Notion templates, Lightroom presets, and social media planners for aspiring content creators.'
-              })
-            }
-          ]);
-        } else {
-          setAiIdeas(fetchedAi);
-        }
+        setAiIdeas(fetchedAi);
 
         // Fetch Templates
         const templatesQ = query(collection(db, 'products'), where('category', '==', 'Template'), limit(4));
         const templatesSnap = await getDocs(templatesQ);
         const fetchedTemplates = templatesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        if (fetchedTemplates.length === 0) {
-          setTemplates([
-            { id: 't1', title: 'Ultimate Notion Life Planner', description: 'Organize your entire life with this comprehensive Notion system.', price: '19.99', creatorName: 'Sarah Jenkins' },
-            { id: 't2', title: 'Social Media Content Calendar', description: 'Plan 30 days of content in 1 hour with this Airtable template.', price: '12.00', creatorName: 'Marcus Chen' },
-            { id: 't3', title: 'Freelance Invoice Template', description: 'Professional, automated invoice template for freelancers.', price: '5.00', creatorName: 'Elena Rodriguez' },
-            { id: 't4', title: 'Startup Pitch Deck', description: 'The exact pitch deck template used to raise $1M+.', price: '29.00', creatorName: 'David Kim' }
-          ]);
-        } else {
-          setTemplates(fetchedTemplates);
-        }
+        setTemplates(fetchedTemplates);
       } catch (error) {
         console.error("Error fetching discover data:", error);
       } finally {
@@ -141,27 +99,7 @@ export default function Discover() {
     const postsQ = query(collection(db, 'posts'), orderBy('likesCount', 'desc'), limit(10));
     const unsubscribePosts = onSnapshot(postsQ, (snapshot) => {
       const fetchedPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      if (fetchedPosts.length === 0) {
-        setTrendingPosts([
-          {
-            id: 'demo-post-1',
-            authorName: 'Sarah Jenkins',
-            authorPhoto: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-            content: "Just launched my new AI-powered design tool! 🚀 The response has been overwhelming.",
-            imageUrl: 'https://images.unsplash.com/photo-1618761714954-0b8cd0026356?w=800',
-            likesCount: 124,
-          },
-          {
-            id: 'demo-post-2',
-            authorName: 'Marcus Chen',
-            authorPhoto: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-            content: "What's everyone working on this weekend? I'm diving deep into some new machine learning models. 📊🤖",
-            likesCount: 89,
-          }
-        ]);
-      } else {
-        setTrendingPosts(fetchedPosts);
-      }
+      setTrendingPosts(fetchedPosts);
     });
 
     return () => {
@@ -305,9 +243,14 @@ export default function Discover() {
                     onClick={() => {
                       handleWebSearch();
                     }}
-                    className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    disabled={isWebSearching}
+                    className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    <Search className="w-4 h-4" />
+                    {isWebSearching ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <Search className="w-4 h-4" />
+                    )}
                     Search Web for "{searchQuery}"
                   </button>
                 </div>
@@ -334,10 +277,15 @@ export default function Discover() {
           
           <button 
             onClick={() => handleWebSearch()}
-            className="flex-1 min-w-[200px] p-4 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-2xl flex items-center gap-4 transition-all group"
+            disabled={isWebSearching}
+            className="flex-1 min-w-[200px] p-4 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-2xl flex items-center gap-4 transition-all group disabled:opacity-50"
           >
             <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Search className="w-6 h-6 text-zinc-400" />
+              {isWebSearching ? (
+                <div className="w-5 h-5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <Search className="w-6 h-6 text-zinc-400" />
+              )}
             </div>
             <div className="text-left">
               <h3 className="text-white font-semibold">Web Search</h3>
@@ -471,16 +419,7 @@ export default function Discover() {
                         className="w-16 h-16 rounded-full object-cover mb-3 border-2 border-transparent group-hover:border-indigo-500 transition-colors"
                       />
                       <h3 className="font-semibold text-white text-center truncate w-full">{creator.displayName}</h3>
-                      <p className="text-xs text-zinc-500 mb-3 truncate w-full text-center">@{creator.username}</p>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toast.success(`You are now following ${creator.displayName}`);
-                        }}
-                        className="w-full py-1.5 bg-white text-black hover:bg-zinc-200 rounded-full text-sm font-medium transition-colors"
-                      >
-                        Follow
-                      </button>
+                      <p className="text-xs text-zinc-500 truncate w-full text-center">@{creator.username}</p>
                     </div>
                   ))
                 ) : (
