@@ -48,8 +48,12 @@ async function startServer() {
       await webpush.sendNotification(subscription, JSON.stringify(payload));
       res.status(200).json({ success: true });
     } catch (error: any) {
-      console.error("Error sending push notification:", error);
-      res.status(500).json({ error: error.message });
+      if (error.statusCode === 404 || error.statusCode === 410) {
+        console.log('Push subscription has expired or is no longer valid:', error.endpoint);
+        return res.status(error.statusCode).json({ error: 'Subscription expired', statusCode: error.statusCode });
+      }
+      console.error("Error sending push notification:", error.message || error);
+      res.status(500).json({ error: error.message, statusCode: error.statusCode });
     }
   });
 
