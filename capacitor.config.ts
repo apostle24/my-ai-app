@@ -1,7 +1,7 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.nexusai.pro',
+  appId: 'com.nexusaipro',
   appName: 'Nexus AI Pro',
   webDir: 'dist',
   bundledWebRuntime: false,

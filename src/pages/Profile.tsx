@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { doc, updateDoc, collection, query, where, getDocs, orderBy, addDoc, getDoc, onSnapshot, serverTimestamp, limit, deleteDoc, increment, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Settings, Edit3, Camera, MapPin, Link as LinkIcon, Calendar, Wallet, TrendingUp, Users, Image as ImageIcon, Video, FileText, Heart, MessageCircle, X, Sparkles } from 'lucide-react';
+import { Settings, Edit3, Camera, MapPin, Link as LinkIcon, Calendar, Wallet, TrendingUp, Users, Image as ImageIcon, Video, FileText, Heart, MessageCircle, X, Sparkles, Zap, Bookmark } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Link, useParams, useNavigate } from 'react-router-dom';
@@ -54,6 +54,7 @@ export default function Profile() {
   });
   const [activeTab, setActiveTab] = useState('posts');
   const [userPosts, setUserPosts] = useState<any[]>([]);
+  const [savedPosts, setSavedPosts] = useState<any[]>([]);
   const [userProducts, setUserProducts] = useState<any[]>([]);
   const [userPurchases, setUserPurchases] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -167,6 +168,7 @@ export default function Profile() {
     });
 
     let unsubscribePurchases = () => {};
+    let unsubscribeSaved = () => {};
     if (isOwnProfile) {
       const purchasesQ = query(collection(db, 'transactions'), where('userId', '==', targetUserId), where('type', '==', 'purchase'), orderBy('createdAt', 'desc'), limit(50));
       unsubscribePurchases = onSnapshot(purchasesQ, async (snapshot) => {
@@ -190,12 +192,32 @@ export default function Profile() {
       }, (error) => {
         console.error("Error fetching user purchases:", error);
       });
+
+      const savedQ = query(collection(db, `users/${targetUserId}/savedPosts`), orderBy('savedAt', 'desc'), limit(50));
+      unsubscribeSaved = onSnapshot(savedQ, async (snapshot) => {
+        const savedRecords = snapshot.docs.map(doc => ({ id: doc.id, savedAt: doc.data().savedAt }));
+        const populatedPosts = await Promise.all(savedRecords.map(async (record) => {
+          try {
+            const postDoc = await getDoc(doc(db, 'posts', record.id));
+            if (postDoc.exists()) {
+              return { ...postDoc.data(), id: postDoc.id, savedAt: record.savedAt };
+            }
+          } catch(e) {
+             console.error("Error fetching saved post:", e);
+          }
+          return null;
+        }));
+        setSavedPosts(populatedPosts.filter(p => p !== null));
+      }, (error) => {
+        console.error("Error fetching saved posts:", error);
+      });
     }
 
     return () => {
       unsubscribePosts();
       unsubscribeProducts();
       unsubscribePurchases();
+      unsubscribeSaved();
     };
   }, [user, userId, isOwnProfile]);
 
@@ -753,6 +775,15 @@ export default function Profile() {
           )}
           {isOwnProfile && (
             <button 
+              onClick={() => setActiveTab('saved')}
+              className={`pb-4 text-sm font-medium transition-colors relative ${activeTab === 'saved' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              Saved
+              {activeTab === 'saved' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white rounded-t-full"></div>}
+            </button>
+          )}
+          {isOwnProfile && (
+            <button 
               onClick={() => setActiveTab('purchases')}
               className={`pb-4 text-sm font-medium transition-colors relative ${activeTab === 'purchases' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
@@ -888,6 +919,50 @@ export default function Profile() {
                     Create Product
                   </button>
                 )}
+              </div>
+            )
+          ) : activeTab === 'saved' ? (
+            savedPosts.length > 0 ? (
+              <div className="space-y-4">
+                {savedPosts.map(post => (
+                  <div 
+                    key={post.id} 
+                    onClick={() => navigate(`/post/${post.id}`)}
+                    className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-4 cursor-pointer hover:bg-zinc-900 transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <img referrerPolicy="no-referrer" src={post.authorPhoto || `https://ui-avatars.com/api/?name=${post.authorName}`} alt={post.authorName} className="w-8 h-8 rounded-full object-cover" />
+                        <div>
+                           <p className="text-sm font-medium text-white">{post.authorName}</p>
+                           <p className="text-xs text-zinc-500">Saved {post.savedAt ? formatDistanceToNow(new Date(post.savedAt), { addSuffix: true }) : 'just now'}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteDoc(doc(db, `users/${user?.uid}/savedPosts/${post.id}`));
+                          toast.info("Removed from saved posts");
+                        }}
+                        className="text-zinc-500 hover:text-red-500 p-2 rounded-full hover:bg-zinc-800 transition-colors"
+                      >
+                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                    <p className="text-zinc-200 mb-3">{post.content}</p>
+                    {post.imageUrl && (
+                      <div className="rounded-xl overflow-hidden">
+                        <img referrerPolicy="no-referrer" src={post.imageUrl} alt="Post" className="w-full h-auto object-cover" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-20">
+                <Bookmark className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-white mb-2">No saved posts</h3>
+                <p className="text-zinc-500">When you save posts to Drive, they'll appear here.</p>
               </div>
             )
           ) : activeTab === 'purchases' ? (

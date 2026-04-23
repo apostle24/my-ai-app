@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Home, Search, Sparkles, Bell, User, PlusCircle, ShoppingBag, MessageCircle, HelpCircle, Bot, Shield } from "lucide-react";
+import { Home, Search, Sparkles, Bell, User, PlusCircle, ShoppingBag, MessageCircle, HelpCircle, Bot, Shield, Users } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAuth } from "../contexts/AuthContext";
 import { useState, useEffect } from "react";
@@ -22,6 +22,7 @@ export default function Layout() {
   const navItems = [
     { icon: Home, label: "Home", path: "/" },
     { icon: Search, label: "Discover", path: "/discover" },
+    { icon: Users, label: "Communities", path: "/communities" },
     { icon: Sparkles, label: "AI Studio", path: "/ai-studio" },
     { icon: Bot, label: "Assistant", path: "/chat" },
     { icon: ShoppingBag, label: "Market", path: "/marketplace" },
@@ -65,10 +66,11 @@ export default function Layout() {
 
   useEffect(() => {
     const hasSeenGlobalTour = localStorage.getItem('hasSeenGlobalTour');
-    if (!hasSeenGlobalTour && location.pathname === '/') {
-      setTimeout(() => setRunGlobalTour(true), 1500);
+    // We only want to trigger the tour if they are logged in since the layout is hidden otherwise
+    if (user && !hasSeenGlobalTour && location.pathname === '/') {
+      setTimeout(() => setRunGlobalTour(true), 2000);
     }
-  }, [location.pathname]);
+  }, [location.pathname, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -212,7 +214,9 @@ export default function Layout() {
               />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{userProfile?.displayName || 'Guest'}</p>
-                <p className="text-xs text-zinc-500 truncate">@{userProfile?.username || 'user'}</p>
+                <p className="text-xs text-zinc-500 truncate flex items-center gap-1">
+                  Credits: <span className="text-green-400 font-medium">${(userProfile?.walletBalance || 0).toFixed(2)}</span>
+                </p>
               </div>
             </NavLink>
           ) : (

@@ -101,7 +101,7 @@ export async function sendPushNotificationToUser(recipientId: string, payload: a
         keys: subData.keys
       };
 
-      await fetch('/api/send-notification', {
+      const response = await fetch('/api/send-notification', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -111,6 +111,15 @@ export async function sendPushNotificationToUser(recipientId: string, payload: a
           payload
         })
       });
+
+      if (response.status === 410 || response.status === 404) {
+        // Subscription expired or is invalid, delete it from Firestore
+        const { doc, deleteDoc } = await import('firebase/firestore');
+        await deleteDoc(doc(db, 'push_subscriptions', docSnap.id));
+      } else if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Failed to send push notification:', errorData);
+      }
     });
 
     await Promise.all(sendPromises);

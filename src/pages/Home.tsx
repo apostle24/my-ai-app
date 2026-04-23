@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, increment, deleteDoc, getDocs, setDoc, where } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, increment, deleteDoc, getDocs, setDoc, where, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Heart, MessageCircle, Share2, MoreHorizontal, Bookmark, Sparkles, Camera, Edit2, Trash2, X, Check } from 'lucide-react';
@@ -22,6 +22,7 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('General');
+  const [postVisibility, setPostVisibility] = useState('public');
   const [postLimit, setPostLimit] = useState(10);
   const [hasMore, setHasMore] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -43,7 +44,11 @@ export default function Home() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const postsData = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter((post: any) => !post.isDraft || post.authorId === user?.uid);
+        .filter((post: any) => {
+          if (post.isDraft && post.authorId !== user?.uid) return false;
+          if (post.visibility === 'private' && post.authorId !== user?.uid) return false;
+          return true;
+        });
       setPosts(postsData);
       setLoading(false);
       
@@ -228,6 +233,7 @@ export default function Home() {
         commentsCount: 0,
         createdAt: new Date().toISOString(),
         category: selectedCategory,
+        visibility: postVisibility,
         isDraft: isDraft
       };
       
@@ -382,11 +388,21 @@ export default function Home() {
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="bg-zinc-900 text-zinc-300 text-xs rounded-full px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-indigo-500 ml-2"
+                  className="bg-zinc-900 text-zinc-300 text-sm md:text-xs rounded-full px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-indigo-500 ml-2"
                 >
                   {CATEGORIES.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
+                </select>
+
+                <select
+                  value={postVisibility}
+                  onChange={(e) => setPostVisibility(e.target.value)}
+                  className="bg-zinc-900 text-zinc-300 text-sm md:text-xs rounded-full px-3 py-1.5 border border-zinc-800 focus:outline-none focus:border-indigo-500 ml-2"
+                >
+                  <option value="public">Public</option>
+                  <option value="followers">Followers</option>
+                  <option value="private">Private</option>
                 </select>
               </div>
               <div className="flex gap-2">
@@ -538,7 +554,8 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
     try {
       await updateDoc(doc(db, 'posts', post.id), {
         content: editContent.trim(),
-        isDraft: false // If it was a draft, publishing it
+        isDraft: false,
+        editedAt: new Date().toISOString()
       });
       setIsEditing(false);
       setShowMenu(false);
@@ -546,6 +563,23 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
     } catch (error) {
       console.error("Error updating post:", error);
       toast.error('Failed to update post');
+    }
+  };
+
+  const handleSavePost = async () => {
+    if (!currentUser) return setPremiumModalOpen(true);
+    try {
+      const savedRef = doc(db, `users/${currentUser.uid}/savedPosts/${post.id}`);
+      const savedDoc = await getDoc(savedRef);
+      if (savedDoc.exists()) {
+        await deleteDoc(savedRef);
+        toast.info('Post removed from Drive');
+      } else {
+        await setDoc(savedRef, { savedAt: new Date().toISOString() });
+        toast.success('Post saved to Drive');
+      }
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -672,6 +706,7 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
               <span className="text-sm text-zinc-500">·</span>
               <span className="text-sm text-zinc-500">
                 {post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'just now'}
+                {post.editedAt && <span className="ml-1 text-xs italic opacity-70">(edited)</span>}
               </span>
             </div>
             
@@ -685,6 +720,12 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
               
               {showMenu && (
                 <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl z-10 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                  <button 
+                    onClick={() => { handleSavePost(); setShowMenu(false); }}
+                    className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-2"
+                  >
+                    <Bookmark className="w-4 h-4" /> Save to Drive
+                  </button>
                   {currentUser?.uid === post.authorId ? (
                     <>
                       <button 
@@ -737,7 +778,17 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
               </div>
             </div>
           ) : (
-            <p className="mt-1 text-zinc-200 whitespace-pre-wrap">{post.content}</p>
+            <p className="mt-1 text-zinc-200 whitespace-pre-wrap">
+              {post.content.split(/(#[a-zA-Z0-9_]+)/g).map((part: string, i: number) => 
+                part.startsWith('#') ? (
+                  <Link key={i} to={`/explore?tag=${part.slice(1)}`} onClick={(e) => e.stopPropagation()} className="text-indigo-400 hover:underline">
+                    {part}
+                  </Link>
+                ) : (
+                  <span key={i}>{part}</span>
+                )
+              )}
+            </p>
           )}
           
           {post.imageUrl && (
@@ -784,7 +835,7 @@ export function PostCard({ post, onLike, currentUser, userProfile }: { post: any
             </button>
             
             <button 
-              onClick={(e) => { e.stopPropagation(); toast.success('Post bookmarked!'); }}
+              onClick={(e) => { e.stopPropagation(); handleSavePost(); }}
               className="flex items-center gap-2 text-zinc-500 hover:text-indigo-500 group transition-colors"
             >
               <div className="p-2 rounded-full group-hover:bg-indigo-500/10">

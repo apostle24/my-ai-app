@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, getDoc, updateDoc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Send, ArrowLeft, Search, User as UserIcon } from 'lucide-react';
+import { Send, ArrowLeft, Search, User as UserIcon, Phone, Video } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { sendPushNotificationToUser } from '../utils/pushNotifications';
 import { useAppStore } from '../store';
@@ -13,6 +13,9 @@ interface Chat {
   lastMessage?: string;
   lastMessageTime?: string;
   updatedAt: string;
+  isGroup?: boolean;
+  groupName?: string;
+  createdBy?: string;
   otherUser?: {
     uid: string;
     displayName: string;
@@ -27,6 +30,7 @@ interface Message {
   text: string;
   createdAt: string;
   read: boolean;
+  senderName?: string;
 }
 
 export default function Messages() {
@@ -64,8 +68,15 @@ export default function Messages() {
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const chatPromises = snapshot.docs.map(async (chatDoc) => {
         const data = chatDoc.data();
-        const otherUserId = data.participantIds.find((id: string) => id !== user.uid);
         
+        if (data.isGroup) {
+          return {
+            id: chatDoc.id,
+            ...data,
+          } as Chat;
+        }
+
+        const otherUserId = data.participantIds.find((id: string) => id !== user.uid);
         let otherUser = null;
         if (otherUserId) {
           const userDoc = await getDoc(doc(db, 'users', otherUserId));
@@ -103,22 +114,43 @@ export default function Messages() {
       limit(100)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
       const fetchedMessages = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Message[];
       
-      setMessages(fetchedMessages.reverse());
+      // Fetch usernames for global chat or group chats
+      if (activeChatId === 'global' || activeChat?.isGroup) {
+        const fetchUsernames = fetchedMessages.map(async (msg) => {
+          if (!msg.senderName && msg.senderId !== user.uid) {
+            try {
+              const uDoc = await getDoc(doc(db, 'users', msg.senderId));
+              if (uDoc.exists()) {
+                return { ...msg, senderName: uDoc.data().displayName };
+              }
+            } catch(e) {}
+          } else if (msg.senderId === user.uid) {
+            return { ...msg, senderName: userProfile?.displayName || 'User' };
+          }
+          return msg;
+        });
+        const fullMessages = await Promise.all(fetchUsernames);
+        setMessages(fullMessages.reverse());
+      } else {
+        setMessages(fetchedMessages.reverse());
+      }
       
       // Mark unread messages as read
-      fetchedMessages.forEach(msg => {
-        if (!msg.read && msg.senderId !== user.uid) {
-          updateDoc(doc(db, `chats/${activeChatId}/messages`, msg.id), {
-            read: true
-          });
-        }
-      });
+      if (activeChatId !== 'global') {
+        fetchedMessages.forEach(msg => {
+          if (!msg.read && msg.senderId !== user.uid) {
+            updateDoc(doc(db, `chats/${activeChatId}/messages`, msg.id), {
+              read: true
+            });
+          }
+        });
+      }
     });
 
     return () => unsubscribe();
@@ -148,23 +180,25 @@ export default function Messages() {
         read: false
       });
 
-      // Update chat last message
-      await updateDoc(doc(db, 'chats', activeChatId), {
-        lastMessage: messageText,
-        lastMessageTime: now,
-        updatedAt: now
-      });
-
-      // Send push notification to the other participant
-      const activeChat = chats.find(c => c.id === activeChatId);
-      const recipientId = activeChat?.participantIds.find(id => id !== user.uid);
-      if (recipientId) {
-        sendPushNotificationToUser(recipientId, {
-          title: `New message from ${userProfile?.displayName || 'Someone'}`,
-          body: messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText,
-          url: `/messages?chatId=${activeChatId}`,
-          icon: userProfile?.photoURL || '/vite.svg'
+      if (activeChatId !== 'global') {
+        // Update chat last message
+        await updateDoc(doc(db, 'chats', activeChatId), {
+          lastMessage: messageText,
+          lastMessageTime: now,
+          updatedAt: now
         });
+
+        // Send push notification to the other participant
+        const activeChat = chats.find(c => c.id === activeChatId);
+        const recipientId = activeChat?.participantIds.find(id => id !== user.uid);
+        if (recipientId) {
+          sendPushNotificationToUser(recipientId, {
+            title: `New message from ${userProfile?.displayName || 'Someone'}`,
+            body: messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText,
+            url: `/messages?chatId=${activeChatId}`,
+            icon: userProfile?.photoURL || '/vite.svg'
+          });
+        }
       }
     } catch (error) {
       console.error("Error sending message:", error);
@@ -198,7 +232,9 @@ export default function Messages() {
       {/* Chats List Sidebar */}
       <div className={`w-full md:w-80 lg:w-96 border-r border-zinc-900 flex flex-col min-h-0 ${activeChatId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 border-b border-zinc-900">
-          <h1 className="text-xl font-bold text-white mb-4">Messages</h1>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-xl font-bold text-white">Messages</h1>
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
             <input
@@ -212,6 +248,22 @@ export default function Messages() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          <button
+            onClick={() => {
+              setActiveChatId('global');
+              navigate(`/messages?chatId=global`);
+            }}
+            className={`w-full p-4 flex items-center gap-3 hover:bg-zinc-900 transition-colors border-b border-zinc-900/50 ${activeChatId === 'global' ? 'bg-zinc-900' : ''}`}
+          >
+            <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center">
+              <UserIcon className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-1 text-left truncate">
+              <h3 className="font-medium text-white truncate">Global Public Chat</h3>
+              <p className="text-sm text-zinc-400 truncate">Join the main room</p>
+            </div>
+          </button>
+
           {filteredChats.length === 0 ? (
             <div className="p-8 text-center text-zinc-500">
               No conversations yet.
@@ -226,7 +278,11 @@ export default function Messages() {
                 }}
                 className={`w-full p-4 flex items-center gap-3 hover:bg-zinc-900 transition-colors border-b border-zinc-900/50 ${activeChatId === chat.id ? 'bg-zinc-900' : ''}`}
               >
-                {chat.otherUser?.photoURL ? (
+                {chat.isGroup ? (
+                   <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
+                     <UserIcon className="w-6 h-6 text-indigo-400" />
+                   </div>
+                ) : chat.otherUser?.photoURL ? (
                   <img referrerPolicy="no-referrer" src={chat.otherUser.photoURL} alt={chat.otherUser.displayName} className="w-12 h-12 rounded-full object-cover" />
                 ) : (
                   <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
@@ -235,7 +291,7 @@ export default function Messages() {
                 )}
                 <div className="flex-1 text-left truncate">
                   <div className="flex justify-between items-baseline mb-1">
-                    <h3 className="font-medium text-white truncate">{chat.otherUser?.displayName}</h3>
+                    <h3 className="font-medium text-white truncate">{chat.isGroup ? chat.groupName : chat.otherUser?.displayName}</h3>
                     {chat.lastMessageTime && (
                       <span className="text-xs text-zinc-500 flex-shrink-0 ml-2">
                         {new Date(chat.lastMessageTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
@@ -254,7 +310,7 @@ export default function Messages() {
 
       {/* Active Chat Area */}
       <div className={`flex-1 flex flex-col min-h-0 ${!activeChatId ? 'hidden md:flex' : 'flex'}`}>
-        {activeChatId && activeChat ? (
+        {activeChatId ? (
           <>
             {/* Chat Header */}
             <div className="p-4 border-b border-zinc-900 flex items-center gap-3 bg-black/50 backdrop-blur-md sticky top-0 z-10">
@@ -268,18 +324,51 @@ export default function Messages() {
                 <ArrowLeft className="w-5 h-5" />
               </button>
               
-              <div 
-                className="flex items-center gap-3 cursor-pointer"
-                onClick={() => navigate(`/profile/${activeChat.otherUser?.uid}`)}
-              >
-                {activeChat.otherUser?.photoURL ? (
-                  <img referrerPolicy="no-referrer" src={activeChat.otherUser.photoURL} alt={activeChat.otherUser.displayName} className="w-10 h-10 rounded-full object-cover" />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
-                    <UserIcon className="w-5 h-5 text-zinc-400" />
+              {activeChatId === 'global' ? (
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center">
+                    <UserIcon className="w-5 h-5 text-white" />
                   </div>
-                )}
-                <h2 className="font-semibold text-white">{activeChat.otherUser?.displayName}</h2>
+                  <h2 className="font-semibold text-white">Global Public Chat</h2>
+                </div>
+              ) : activeChat?.isGroup ? (
+                <div className="flex items-center gap-3 cursor-pointer">
+                  <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                    <UserIcon className="w-5 h-5 text-indigo-400" />
+                  </div>
+                  <h2 className="font-semibold text-white">{activeChat.groupName}</h2>
+                </div>
+              ) : (
+                <div 
+                  className="flex items-center gap-3 cursor-pointer"
+                  onClick={() => navigate(`/profile/${activeChat?.otherUser?.uid}`)}
+                >
+                  {activeChat?.otherUser?.photoURL ? (
+                    <img referrerPolicy="no-referrer" src={activeChat.otherUser.photoURL} alt={activeChat.otherUser.displayName} className="w-10 h-10 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                      <UserIcon className="w-5 h-5 text-zinc-400" />
+                    </div>
+                  )}
+                  <h2 className="font-semibold text-white">{activeChat?.otherUser?.displayName}</h2>
+                </div>
+              )}
+              
+              <div className="ml-auto flex items-center gap-2">
+                <button 
+                  onClick={() => navigate(`/call/${activeChatId}?mode=audio`)}
+                  className="p-2 text-zinc-400 hover:text-indigo-400 bg-zinc-900 hover:bg-zinc-800 rounded-full transition-colors"
+                  title="Voice Call"
+                >
+                  <Phone className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={() => navigate(`/call/${activeChatId}?mode=video`)}
+                  className="p-2 text-zinc-400 hover:text-indigo-400 bg-zinc-900 hover:bg-zinc-800 rounded-full transition-colors"
+                  title="Video Call"
+                >
+                  <Video className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
@@ -293,9 +382,13 @@ export default function Messages() {
                   <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} gap-2`}>
                     {!isMine && (
                       <div className="w-8 flex-shrink-0">
-                        {showAvatar && activeChat.otherUser?.photoURL && (
+                        {showAvatar && activeChatId !== 'global' && !activeChat?.isGroup && activeChat?.otherUser?.photoURL ? (
                           <img referrerPolicy="no-referrer" src={activeChat.otherUser.photoURL} alt="" className="w-8 h-8 rounded-full object-cover" />
-                        )}
+                        ) : showAvatar ? (
+                          <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center">
+                            <span className="text-xs text-white">{(msg.senderName || 'U').charAt(0).toUpperCase()}</span>
+                          </div>
+                        ) : null}
                       </div>
                     )}
                     
@@ -304,6 +397,9 @@ export default function Messages() {
                         ? 'bg-indigo-600 text-white rounded-tr-sm' 
                         : 'bg-zinc-800 text-zinc-100 rounded-tl-sm'
                     }`}>
+                      {!isMine && (activeChatId === 'global' || activeChat?.isGroup) && (
+                        <p className="text-xs text-indigo-400 font-bold mb-1">{msg.senderName || 'User'}</p>
+                      )}
                       <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                       <span className={`text-[10px] mt-1 block ${isMine ? 'text-indigo-200' : 'text-zinc-500'}`}>
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

@@ -3,7 +3,7 @@ import { collection, query, orderBy, limit, getDocs, where, onSnapshot } from 'f
 import { db } from '../firebase';
 import { Search, TrendingUp, Users, Sparkles, Video, Image as ImageIcon, FileText, Globe } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import Markdown from 'react-markdown';
 
@@ -21,8 +21,18 @@ export default function Discover() {
   const [isWebSearching, setIsWebSearching] = useState(false);
   const navigate = useNavigate();
 
+  const location = useLocation();
+
   // Trending search keywords
   const trendingSearches = ['AI Automation', 'Notion Templates', 'SaaS Ideas', 'Content Creation', 'Marketing Strategy'];
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tag = searchParams.get('tag');
+    if (tag) {
+      setSearchQuery(`#${tag}`);
+    }
+  }, [location.search]);
 
   const handleWebSearch = async () => {
     if (!searchQuery.trim()) return;
