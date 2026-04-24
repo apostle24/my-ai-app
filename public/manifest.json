@@ -1,20 +1,22 @@
 {
+  "id": "/?source=pwa",
   "name": "Nexus AI Pro",
   "short_name": "Nexus",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#09090b",
   "theme_color": "#6366f1",
   "description": "The next generation social media and calling platform.",
   "icons": [
     {
-      "src": "/icon-192x192.png",
+      "src": "https://ui-avatars.com/api/?name=N+X&background=09090b&color=6366f1&size=192&format=png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512x512.png",
+      "src": "https://ui-avatars.com/api/?name=N+X&background=09090b&color=6366f1&size=512&format=png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
